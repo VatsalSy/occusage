@@ -31,6 +31,7 @@ import {
 	loadMonthlyUsageData,
 	loadSessionBlockData,
 	loadSessionData,
+	loadUnifiedProjectData,
 } from './data-loader.ts';
 
 // Output schemas for structured responses
@@ -143,6 +144,32 @@ const monthlyResponseSchema = {
 
 const blocksResponseSchema = {
 	blocks: z.array(blockUsageSchema),
+};
+
+const projectUsageSchema = z.object({
+	projectName: z.string(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	cacheCreationTokens: z.number().optional(),
+	cacheReadTokens: z.number().optional(),
+	totalTokens: z.number(),
+	totalCost: z.number(),
+	lastActivity: z.string(),
+	modelsUsed: z.array(z.string()),
+	modelBreakdowns: z.array(modelBreakdownSchema),
+});
+
+const projectResponseSchema = {
+	projects: z.array(projectUsageSchema),
+	totals: z.object({
+		totalInputTokens: z.number().optional(),
+		totalOutputTokens: z.number().optional(),
+		totalCacheCreationTokens: z.number().optional(),
+		totalCacheReadTokens: z.number().optional(),
+		totalTokens: z.number().optional(),
+		totalCost: z.number().optional(),
+		modelsUsed: z.array(z.string()).optional(),
+	}),
 };
 
 // Type for structured content to avoid repetitive casting
@@ -312,6 +339,49 @@ export function createMcpServer({
 					modelBreakdowns: data.modelBreakdowns,
 				}),
 				'monthly',
+			);
+
+			return {
+				content: [
+					{
+						type: 'text',
+						text: JSON.stringify(jsonOutput, null, 2),
+					},
+				],
+				structuredContent: jsonOutput as StructuredContent,
+			};
+		},
+	);
+
+	// Register project tool
+	server.registerTool(
+		'project',
+		{
+			description: 'Show usage report grouped by project',
+			inputSchema: parametersZodSchema,
+			outputSchema: projectResponseSchema,
+		},
+		async (args) => {
+			const projectData = await loadUnifiedProjectData({ ...args, claudePath });
+
+			// Transform data to match CLI JSON output format
+			const totals = calculateTotals(projectData);
+			const jsonOutput = transformUsageDataWithTotals(
+				projectData,
+				totals,
+				data => ({
+					projectName: data.projectName,
+					inputTokens: data.inputTokens,
+					outputTokens: data.outputTokens,
+					cacheCreationTokens: data.cacheCreationTokens,
+					cacheReadTokens: data.cacheReadTokens,
+					totalTokens: getTotalTokens(data),
+					totalCost: data.totalCost,
+					lastActivity: data.lastActivity,
+					modelsUsed: data.modelsUsed,
+					modelBreakdowns: data.modelBreakdowns,
+				}),
+				'projects',
 			);
 
 			return {

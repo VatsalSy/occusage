@@ -89,7 +89,7 @@ type UnifiedUsageEntry = {
 /**
  * Loads unified usage data from both Claude and OpenCode sources
  */
-// eslint-disable-next-line ts/no-unused-vars
+
 async function _loadUnifiedUsageData(
 	options?: LoadOptions,
 ): Promise<UnifiedUsageEntry[]> {
@@ -400,6 +400,28 @@ export const sessionUsageSchema = z.object({
  * Type definition for session-based usage aggregation
  */
 export type SessionUsage = z.infer<typeof sessionUsageSchema>;
+
+/**
+ * Zod schema for project-based usage aggregation data
+ */
+export const projectUsageSchema = z.object({
+	projectName: z.string(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	cacheCreationTokens: z.number(),
+	cacheReadTokens: z.number(),
+	totalCost: z.number(),
+	lastActivity: activityDateSchema,
+	versions: z.array(versionSchema), // List of unique versions used in this project
+	modelsUsed: z.array(modelNameSchema),
+	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
+});
+
+/**
+ * Type definition for project-based usage aggregation
+ */
+export type ProjectUsage = z.infer<typeof projectUsageSchema>;
 
 /**
  * Zod schema for monthly usage aggregation data
@@ -1426,7 +1448,7 @@ export async function loadUnifiedSessionData(
 
 	for (const entry of dateFiltered) {
 		// Create unified session identifier
-		const unifiedSessionId = entry.source === 'opencode' 
+		const unifiedSessionId = entry.source === 'opencode'
 			? `${entry.projectPath.split('/').pop()}-${entry.sessionId}` // Use last part of project path + session
 			: entry.sessionId; // Claude uses sessionId directly
 
@@ -2290,6 +2312,187 @@ function extractProjectFromEntry(entry: LoadedUsageEntry): string {
 	// For Claude Code, we would extract from the file path, but LoadedUsageEntry doesn't have that
 	// This would need to be enhanced to track project info in LoadedUsageEntry
 	return 'claude-project'; // Placeholder
+}
+
+/**
+ * Helper function to extract project name from folder path
+ * For Claude: -Users-vatsal-Library-CloudStorage-Dropbox-Apps-localApps-occusage -> localApps-occusage
+ * For OpenCode: /Users/vatsal/jarvis -> vatsal-jarvis, /global -> global
+ */
+function extractProjectName(folderPath: string): string {
+	// Check if this is an OpenCode full path (starts with /)
+	if (folderPath.startsWith('/')) {
+		// For OpenCode full paths like /Users/vatsal/jarvis or /global
+		if (folderPath === '/global') {
+			return 'global';
+		}
+		// Get the last two segments of the path
+		const parts = folderPath.split('/').filter(p => p.length > 0);
+		if (parts.length >= 2) {
+			// Take the last two parts and join with dash (e.g., vatsal-jarvis)
+			return parts.slice(-2).join('-');
+		}
+		else if (parts.length === 1) {
+			// If only one part, return it as is
+			return parts[0];
+		}
+		return 'unknown';
+	}
+	
+	// For Claude format (starts with dash)
+	const cleanPath = folderPath.startsWith('-') ? folderPath.slice(1) : folderPath;
+	
+	// Split by dashes and get the last two parts
+	const parts = cleanPath.split('-');
+	
+	// If we have at least 2 parts, join the last two
+	// This handles cases like localApps-occusage
+	if (parts.length >= 2) {
+		return parts.slice(-2).join('-');
+	}
+	
+	// Fallback to the last part if less than 2 parts
+	return parts[parts.length - 1] ?? 'unknown';
+}
+
+/**
+ * Loads and aggregates usage data grouped by project
+ */
+export async function loadUnifiedProjectData(
+	options?: LoadOptions,
+): Promise<ProjectUsage[]> {
+	// Load unified usage data from both sources
+	const allEntries = await _loadUnifiedUsageData(options);
+
+	if (allEntries.length === 0) {
+		return [];
+	}
+
+	// Filter by date range if specified
+	const dateFiltered = filterByDateRange(
+		allEntries,
+		item => item.timestamp,
+		options?.since,
+		options?.until,
+	);
+
+	// Group by project name
+	const projectMap = new Map<string, {
+		entries: UnifiedUsageEntry[];
+		latestTimestamp: string;
+	}>();
+
+	for (const entry of dateFiltered) {
+		// Extract project name from the project path
+		const projectName = extractProjectName(entry.projectPath);
+
+		const existing = projectMap.get(projectName);
+		if (existing == null) {
+			projectMap.set(projectName, {
+				entries: [entry],
+				latestTimestamp: entry.timestamp,
+			});
+		}
+		else {
+			existing.entries.push(entry);
+			if (entry.timestamp > existing.latestTimestamp) {
+				existing.latestTimestamp = entry.timestamp;
+			}
+		}
+	}
+
+	// Convert to ProjectUsage format
+	const results: ProjectUsage[] = [];
+
+	for (const [projectName, projectData] of projectMap.entries()) {
+		const { entries, latestTimestamp } = projectData;
+
+		// Calculate totals
+		let inputTokens = 0;
+		let outputTokens = 0;
+		let cacheCreationTokens = 0;
+		let cacheReadTokens = 0;
+		let totalCost = 0;
+
+		const modelsUsed = new Set<string>();
+		const versions = new Set<string>();
+		const modelBreakdowns = new Map<string, ModelBreakdown>();
+		const sourceBreakdowns = new Map<'claude' | 'opencode', SourceBreakdown>();
+
+		// Process each entry
+		for (const entry of entries) {
+			const usage = entry.usage;
+			inputTokens += usage.input_tokens;
+			outputTokens += usage.output_tokens;
+			cacheCreationTokens += usage.cache_creation_input_tokens;
+			cacheReadTokens += usage.cache_read_input_tokens;
+			totalCost += entry.costUSD ?? 0;
+
+			modelsUsed.add(entry.model);
+			versions.add(entry.version ?? '1.0.0');
+
+			// Update model breakdown
+			const existing = modelBreakdowns.get(entry.model);
+			if (existing == null) {
+				modelBreakdowns.set(entry.model, {
+					modelName: entry.model as ModelName,
+					inputTokens: usage.input_tokens,
+					outputTokens: usage.output_tokens,
+					cacheCreationTokens: usage.cache_creation_input_tokens,
+					cacheReadTokens: usage.cache_read_input_tokens,
+					cost: entry.costUSD ?? 0,
+				});
+			}
+			else {
+				existing.inputTokens += usage.input_tokens;
+				existing.outputTokens += usage.output_tokens;
+				existing.cacheCreationTokens += usage.cache_creation_input_tokens;
+				existing.cacheReadTokens += usage.cache_read_input_tokens;
+				existing.cost += entry.costUSD ?? 0;
+			}
+
+			// Update source breakdown
+			const sourceExisting = sourceBreakdowns.get(entry.source);
+			if (sourceExisting == null) {
+				sourceBreakdowns.set(entry.source, {
+					source: entry.source,
+					inputTokens: usage.input_tokens,
+					outputTokens: usage.output_tokens,
+					cacheCreationTokens: usage.cache_creation_input_tokens,
+					cacheReadTokens: usage.cache_read_input_tokens,
+					totalCost: entry.costUSD ?? 0,
+				});
+			}
+			else {
+				sourceExisting.inputTokens += usage.input_tokens;
+				sourceExisting.outputTokens += usage.output_tokens;
+				sourceExisting.cacheCreationTokens += usage.cache_creation_input_tokens;
+				sourceExisting.cacheReadTokens += usage.cache_read_input_tokens;
+				sourceExisting.totalCost += entry.costUSD ?? 0;
+			}
+		}
+
+		// Format last activity date
+		const lastActivity = formatDate(latestTimestamp, options?.timezone, options?.locale) as ActivityDate;
+
+		results.push({
+			projectName,
+			inputTokens,
+			outputTokens,
+			cacheCreationTokens,
+			cacheReadTokens,
+			totalCost,
+			lastActivity,
+			versions: Array.from(versions) as Version[],
+			modelsUsed: Array.from(modelsUsed) as ModelName[],
+			modelBreakdowns: Array.from(modelBreakdowns.values()),
+			sourceBreakdowns: Array.from(sourceBreakdowns.values()),
+		});
+	}
+
+	// Sort results
+	const sortOrder = options?.order ?? 'desc';
+	return sort(results)[sortOrder === 'asc' ? 'asc' : 'desc'](item => item.lastActivity);
 }
 
 if (import.meta.vitest != null) {
