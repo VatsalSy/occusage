@@ -34,6 +34,7 @@ export type LoadedUsageEntry = {
 	model: string;
 	version?: string;
 	usageLimitResetTime?: Date; // Claude API usage limit reset time
+	project?: string; // Project name extracted from file path or metadata
 };
 
 /**

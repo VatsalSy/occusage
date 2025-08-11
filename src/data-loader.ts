@@ -495,6 +495,7 @@ export const bucketUsageSchema = z.object({
 	totalCost: z.number(),
 	modelsUsed: z.array(modelNameSchema),
 	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
 	project: z.string().optional(), // Project name when groupByProject is enabled
 });
 
@@ -889,6 +890,54 @@ export async function sortFilesByTimestamp(files: string[]): Promise<string[]> {
 }
 
 /**
+ * Generic function to calculate cost based on mode
+ * @param costUSD - The stored cost value (may be null or undefined)
+ * @param tokens - Token usage object
+ * @param model - Model name
+ * @param mode - Cost calculation mode
+ * @param fetcher - Pricing fetcher instance
+ * @returns Calculated cost in USD
+ */
+async function calculateCostGeneric(
+	costUSD: number | null | undefined,
+	tokens: {
+		input_tokens: number;
+		output_tokens: number;
+		cache_creation_input_tokens?: number;
+		cache_read_input_tokens?: number;
+	},
+	model: string | undefined,
+	mode: CostMode,
+	fetcher: PricingFetcher,
+): Promise<number> {
+	if (mode === 'display') {
+		// Always use costUSD for display mode, even if null
+		return costUSD ?? 0;
+	}
+
+	if (mode === 'calculate') {
+		// Always calculate from tokens for calculate mode
+		if (model != null) {
+			return Result.unwrap(fetcher.calculateCostFromTokens(tokens, model), 0);
+		}
+		return 0;
+	}
+
+	if (mode === 'auto') {
+		// Auto mode: use costUSD if available, otherwise calculate
+		if (costUSD != null) {
+			return costUSD;
+		}
+		if (model != null) {
+			return Result.unwrap(fetcher.calculateCostFromTokens(tokens, model), 0);
+		}
+		return 0;
+	}
+
+	unreachable(mode);
+}
+
+/**
  * Calculates cost for a single usage data entry based on the specified cost calculation mode
  * @param data - Usage data entry
  * @param mode - Cost calculation mode (auto, calculate, or display)
@@ -900,33 +949,13 @@ export async function calculateCostForEntry(
 	mode: CostMode,
 	fetcher: PricingFetcher,
 ): Promise<number> {
-	if (mode === 'display') {
-		// Always use costUSD, even if undefined
-		return data.costUSD ?? 0;
-	}
-
-	if (mode === 'calculate') {
-		// Always calculate from tokens
-		if (data.message.model != null) {
-			return Result.unwrap(fetcher.calculateCostFromTokens(data.message.usage, data.message.model), 0);
-		}
-		return 0;
-	}
-
-	if (mode === 'auto') {
-		// Auto mode: use costUSD if available, otherwise calculate
-		if (data.costUSD != null) {
-			return data.costUSD;
-		}
-
-		if (data.message.model != null) {
-			return Result.unwrap(fetcher.calculateCostFromTokens(data.message.usage, data.message.model), 0);
-		}
-
-		return 0;
-	}
-
-	unreachable(mode);
+	return calculateCostGeneric(
+		data.costUSD,
+		data.message.usage,
+		data.message.model,
+		mode,
+		fetcher,
+	);
 }
 
 /**
@@ -941,39 +970,19 @@ async function calculateCostForLoadedEntry(
 	mode: CostMode,
 	fetcher: PricingFetcher,
 ): Promise<number> {
-	if (mode === 'display') {
-		// Always use costUSD, even if null
-		return entry.costUSD ?? 0;
-	}
-
-	if (mode === 'calculate') {
-		// Always calculate from tokens
-		const tokens = {
-			input_tokens: entry.usage.inputTokens,
-			output_tokens: entry.usage.outputTokens,
-			cache_creation_input_tokens: entry.usage.cacheCreationInputTokens,
-			cache_read_input_tokens: entry.usage.cacheReadInputTokens,
-		};
-		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
-	}
-
-	if (mode === 'auto') {
-		// Auto mode: use costUSD if available, otherwise calculate
-		if (entry.costUSD != null) {
-			return entry.costUSD;
-		}
-
-		// Calculate from tokens when costUSD is missing (e.g., OpenCode entries)
-		const tokens = {
-			input_tokens: entry.usage.inputTokens,
-			output_tokens: entry.usage.outputTokens,
-			cache_creation_input_tokens: entry.usage.cacheCreationInputTokens,
-			cache_read_input_tokens: entry.usage.cacheReadInputTokens,
-		};
-		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
-	}
-
-	unreachable(mode);
+	const tokens = {
+		input_tokens: entry.usage.inputTokens,
+		output_tokens: entry.usage.outputTokens,
+		cache_creation_input_tokens: entry.usage.cacheCreationInputTokens,
+		cache_read_input_tokens: entry.usage.cacheReadInputTokens,
+	};
+	return calculateCostGeneric(
+		entry.costUSD,
+		tokens,
+		entry.model,
+		mode,
+		fetcher,
+	);
 }
 
 /**
@@ -988,39 +997,13 @@ async function calculateCostForUnifiedEntry(
 	mode: CostMode,
 	fetcher: PricingFetcher,
 ): Promise<number> {
-	if (mode === 'display') {
-		// Always use costUSD, even if null
-		return entry.costUSD ?? 0;
-	}
-
-	if (mode === 'calculate') {
-		// Always calculate from tokens
-		const tokens = {
-			input_tokens: entry.usage.input_tokens,
-			output_tokens: entry.usage.output_tokens,
-			cache_creation_input_tokens: entry.usage.cache_creation_input_tokens,
-			cache_read_input_tokens: entry.usage.cache_read_input_tokens,
-		};
-		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
-	}
-
-	if (mode === 'auto') {
-		// Auto mode: use costUSD if available, otherwise calculate
-		if (entry.costUSD != null) {
-			return entry.costUSD;
-		}
-
-		// Calculate from tokens when costUSD is missing (e.g., OpenCode entries)
-		const tokens = {
-			input_tokens: entry.usage.input_tokens,
-			output_tokens: entry.usage.output_tokens,
-			cache_creation_input_tokens: entry.usage.cache_creation_input_tokens,
-			cache_read_input_tokens: entry.usage.cache_read_input_tokens,
-		};
-		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
-	}
-
-	unreachable(mode);
+	return calculateCostGeneric(
+		entry.costUSD,
+		entry.usage,
+		entry.model,
+		mode,
+		fetcher,
+	);
 }
 
 /**
@@ -1035,39 +1018,19 @@ async function calculateCostForOpenCodeEntry(
 	mode: CostMode,
 	fetcher: PricingFetcher,
 ): Promise<number> {
-	if (mode === 'display') {
-		// Always use cost, even if null
-		return entry.cost ?? 0;
-	}
-
-	if (mode === 'calculate') {
-		// Always calculate from tokens
-		const tokens = {
-			input_tokens: entry.tokens.input,
-			output_tokens: entry.tokens.output,
-			cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
-			cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
-		};
-		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
-	}
-
-	if (mode === 'auto') {
-		// Auto mode: use cost if available, otherwise calculate
-		if (entry.cost != null) {
-			return entry.cost;
-		}
-
-		// Calculate from tokens when cost is missing (typical for OpenCode entries)
-		const tokens = {
-			input_tokens: entry.tokens.input,
-			output_tokens: entry.tokens.output,
-			cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
-			cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
-		};
-		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
-	}
-
-	unreachable(mode);
+	const tokens = {
+		input_tokens: entry.tokens.input,
+		output_tokens: entry.tokens.output,
+		cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
+		cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+	};
+	return calculateCostGeneric(
+		entry.cost,
+		tokens,
+		entry.model,
+		mode,
+		fetcher,
+	);
 }
 
 /**
@@ -1277,11 +1240,22 @@ export async function loadDailyUsageData(
 
 			const modelsUsed = extractUniqueModels(entries, e => e.model);
 
+			// Since this is Claude-only data, create a single source breakdown
+			const sourceBreakdowns: SourceBreakdown[] = [{
+				source: 'claude',
+				inputTokens: totals.inputTokens,
+				outputTokens: totals.outputTokens,
+				cacheCreationTokens: totals.cacheCreationTokens,
+				cacheReadTokens: totals.cacheReadTokens,
+				totalCost: totals.totalCost,
+			}];
+
 			return {
 				date: createDailyDate(date),
 				...totals,
 				modelsUsed: modelsUsed as ModelName[],
 				modelBreakdowns,
+				sourceBreakdowns,
 				...(project != null && { project }),
 			};
 		})
@@ -1458,6 +1432,16 @@ export async function loadSessionData(
 
 			const modelsUsed = extractUniqueModels(entries, e => e.model);
 
+			// Since this is Claude-only data, create a single source breakdown
+			const sourceBreakdowns: SourceBreakdown[] = [{
+				source: 'claude',
+				inputTokens: totals.inputTokens,
+				outputTokens: totals.outputTokens,
+				cacheCreationTokens: totals.cacheCreationTokens,
+				cacheReadTokens: totals.cacheReadTokens,
+				totalCost: totals.totalCost,
+			}];
+
 			return {
 				sessionId: createSessionId(latestEntry.sessionId),
 				projectPath: createProjectPath(latestEntry.projectPath),
@@ -1467,6 +1451,7 @@ export async function loadSessionData(
 				versions: uniq(versions).sort() as Version[],
 				modelsUsed: modelsUsed as ModelName[],
 				modelBreakdowns,
+				sourceBreakdowns,
 			};
 		})
 		.filter(item => item != null);
@@ -1788,6 +1773,31 @@ export async function loadBucketUsageData(
 		// Create model breakdowns
 		const modelBreakdowns = createModelBreakdowns(modelAggregates);
 
+		// Aggregate source breakdowns across all days
+		const sourceBreakdownsMap = new Map<'claude' | 'opencode', SourceBreakdown>();
+		for (const daily of dailyEntries) {
+			for (const sourceBreakdown of daily.sourceBreakdowns) {
+				const existing = sourceBreakdownsMap.get(sourceBreakdown.source);
+				if (existing) {
+					existing.inputTokens += sourceBreakdown.inputTokens;
+					existing.outputTokens += sourceBreakdown.outputTokens;
+					existing.cacheCreationTokens += sourceBreakdown.cacheCreationTokens;
+					existing.cacheReadTokens += sourceBreakdown.cacheReadTokens;
+					existing.totalCost += sourceBreakdown.totalCost;
+				} else {
+					sourceBreakdownsMap.set(sourceBreakdown.source, {
+						source: sourceBreakdown.source,
+						inputTokens: sourceBreakdown.inputTokens,
+						outputTokens: sourceBreakdown.outputTokens,
+						cacheCreationTokens: sourceBreakdown.cacheCreationTokens,
+						cacheReadTokens: sourceBreakdown.cacheReadTokens,
+						totalCost: sourceBreakdown.totalCost,
+					});
+				}
+			}
+		}
+		const sourceBreakdowns = Array.from(sourceBreakdownsMap.values());
+
 		// Collect unique models
 		const models: string[] = [];
 		for (const data of dailyEntries) {
@@ -1822,6 +1832,7 @@ export async function loadBucketUsageData(
 			totalCost,
 			modelsUsed: uniq(models) as ModelName[],
 			modelBreakdowns,
+			sourceBreakdowns,
 			...(project != null && { project }),
 		};
 
@@ -1931,6 +1942,7 @@ export async function loadSessionBlockData(
 							model,
 							version: data.version,
 							usageLimitResetTime: usageLimitResetTime ?? undefined,
+							project: extractProjectFromPath(file),
 						});
 					}
 					catch (error) {
@@ -1971,12 +1983,28 @@ export async function loadSessionBlockData(
 					},
 					costUSD: calculatedCost,
 					model: entry.model,
+					project: extractProjectName(entry.projectPath),
 				});
 			}
 		}
 		catch (error) {
-			// Silently skip if OpenCode directory doesn't exist
-			logger.debug('OpenCode data not available:', error);
+			// Differentiate between missing directory and other errors
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			const errorCode = (error as any)?.code;
+			
+			if (errorCode === 'ENOENT' || errorMessage.includes('no such file or directory')) {
+				// Missing OpenCode directory is expected and not an error
+				logger.debug(`OpenCode directory not found at ${options?.openCodePath ?? 'default location'} - skipping OpenCode data`);
+			} else {
+				// Other errors are unexpected and should be logged with more detail
+				logger.error('Failed to load OpenCode data:', {
+					error: errorMessage,
+					stack: error instanceof Error ? error.stack : undefined,
+					openCodePath: options?.openCodePath ?? 'default location',
+				});
+				// Consider rethrowing for critical errors if needed
+				// throw error;
+			}
 		}
 	}
 
@@ -2041,7 +2069,7 @@ export async function loadUnifiedDailyUsageData(
 	for (const block of blocks) {
 		for (const entry of block.entries) {
 			// Use timezone from options for date formatting
-			const dateKey = formatDate(entry.timestamp, options?.timezone, options?.locale);
+			const dateKey = formatDate(entry.timestamp.toISOString(), options?.timezone, options?.locale);
 
 			if (!dailyMap.has(dateKey)) {
 				dailyMap.set(dateKey, {
@@ -2378,14 +2406,16 @@ export async function loadUnifiedWeeklyUsageData(
  * Helper function to extract project name from a LoadedUsageEntry
  */
 function extractProjectFromEntry(entry: LoadedUsageEntry): string {
-	if (entry.source === 'opencode') {
-		// For OpenCode, we need to extract project from the entry data
-		// This will need to be implemented based on how OpenCode entries store project info
-		return 'opencode-project'; // Placeholder
+	// Use the project field if it's already populated
+	if (entry.project != null) {
+		return entry.project;
 	}
-	// For Claude Code, we would extract from the file path, but LoadedUsageEntry doesn't have that
-	// This would need to be enhanced to track project info in LoadedUsageEntry
-	return 'claude-project'; // Placeholder
+	
+	// Fallback to a default value based on source
+	if (entry.source === 'opencode') {
+		return 'opencode-unknown';
+	}
+	return 'claude-unknown';
 }
 
 /**
@@ -2406,7 +2436,7 @@ function extractProjectName(folderPath: string): string {
 			// Take the last two parts and join with dash (e.g., vatsal-jarvis)
 			return parts.slice(-2).join('-');
 		}
-		else if (parts.length === 1) {
+		else if (parts.length === 1 && parts[0] != null) {
 			// If only one part, return it as is
 			return parts[0];
 		}
