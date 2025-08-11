@@ -1,3 +1,5 @@
+# ccusage (legacy version)
+
 <div align="center">
     <img src="https://cdn.jsdelivr.net/gh/ryoppippi/occusage@main/docs/public/logo.svg" alt="occusage logo" width="256" height="256">
     <h1>occusage</h1>
