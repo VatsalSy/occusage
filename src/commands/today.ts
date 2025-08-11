@@ -114,7 +114,7 @@ export const todayCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Claude Code Token Usage Report - Today');
+			logger.box('Open+Claude Code Token Usage Report - Today');
 
 			// Create table with compact mode support
 			const table = new ResponsiveTable({

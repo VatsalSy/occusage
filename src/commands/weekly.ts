@@ -109,7 +109,7 @@ export const weeklyCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Claude Code Token Usage Report - Weekly');
+			logger.box('Open+Claude Code Token Usage Report - Weekly');
 
 			// Create table with compact mode support
 			// When breakdown is enabled, remove Source column for cleaner display

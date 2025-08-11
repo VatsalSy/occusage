@@ -118,7 +118,7 @@ export const projectCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Claude Code Token Usage Report - By Project');
+			logger.box('Open+Claude Code Token Usage Report - By Project');
 
 			// Create table with compact mode support
 			// When breakdown is enabled, remove Source column for cleaner display

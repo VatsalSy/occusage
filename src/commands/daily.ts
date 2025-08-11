@@ -140,7 +140,7 @@ export const dailyCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Claude Code Token Usage Report - Daily');
+			logger.box('Open+Claude Code Token Usage Report - Daily');
 
 			// Create table with compact mode support
 			// When breakdown is enabled, remove Source column for cleaner display

@@ -188,7 +188,7 @@ bun run start project --json
 ### Today's Usage Report
 ```
 ╭──────────────────────────────────────────╮
-│  Claude Code Token Usage Report - Today  │
+│  Open+Claude Code Token Usage Report - Today  │
 ╰──────────────────────────────────────────╯
 
 ┌──────────┬────────────────────┬───────────┬───────────┬───────────────┬──────────────┬───────────────┬─────────────┐

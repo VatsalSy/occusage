@@ -208,7 +208,7 @@ export function renderLiveDisplay(terminal: TerminalManager, block: SessionBlock
 
 	// Draw header
 	terminal.write(`${marginStr}┌${'─'.repeat(boxWidth - 2)}┐\n`);
-	terminal.write(`${marginStr}│${pc.bold(centerText('CLAUDE CODE - LIVE TOKEN USAGE MONITOR', boxWidth - 2))}│\n`);
+	terminal.write(`${marginStr}│${pc.bold(centerText('OPEN+CLAUDE CODE - LIVE TOKEN USAGE MONITOR', boxWidth - 2))}│\n`);
 	terminal.write(`${marginStr}├${'─'.repeat(boxWidth - 2)}┤\n`);
 	terminal.write(`${marginStr}│${' '.repeat(boxWidth - 2)}│\n`);
 

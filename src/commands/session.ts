@@ -118,7 +118,7 @@ export const sessionCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Claude Code Token Usage Report - By Session');
+			logger.box('Open+Claude Code Token Usage Report - By Session');
 
 			// Create table with compact mode support
 			// For session command, keep Source column even in breakdown mode (unlike other commands)

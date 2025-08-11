@@ -463,7 +463,7 @@ export const blocksCommand = define({
 			}
 			else {
 				// Table view for multiple blocks
-				logger.box('Claude Code Token Usage Report - Session Blocks');
+				logger.box('Open+Claude Code Token Usage Report - Session Blocks');
 
 				// Note: actualTokenLimit is calculated in projections section when needed
 
