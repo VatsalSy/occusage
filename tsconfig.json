@@ -11,10 +11,7 @@
 		// Bundler mode
 		"moduleResolution": "bundler",
 		"resolveJsonModule": true,
-		"types": [
-			"vitest/globals",
-			"vitest/importMeta"
-		],
+		"types": [],
 		"allowImportingTsExtensions": true,
 		"allowJs": true,
 		// Best practices
