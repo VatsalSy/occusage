@@ -11,6 +11,7 @@
 import type { LoadedUsageEntry, SessionBlock } from './_session-blocks.ts';
 import type { CostMode, SortOrder } from './_types.ts';
 import { readFile } from 'node:fs/promises';
+import { Result } from '@praha/byethrow';
 import { loadOpenCodeData } from './_opencode-loader.ts';
 import { identifySessionBlocks } from './_session-blocks.ts';
 import {
@@ -178,6 +179,19 @@ export class LiveMonitor implements Disposable {
 
 					this.openCodeHashes.add(entryHash);
 
+					// Calculate cost for OpenCode entries when cost is missing
+					let costUSD = entry.cost ?? 0;
+					if ((entry.cost == null || entry.cost === 0) && this.config.mode !== 'display' && this.fetcher != null) {
+						// Calculate from tokens when cost is missing (typical for OpenCode entries)
+						const tokens = {
+							input_tokens: entry.tokens.input,
+							output_tokens: entry.tokens.output,
+							cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
+							cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+						};
+						costUSD = await Result.unwrap(this.fetcher.calculateCostFromTokens(tokens, entry.model), 0);
+					}
+
 					// Convert to LoadedUsageEntry format and add
 					this.allEntries.push({
 						source: 'opencode',
@@ -188,7 +202,7 @@ export class LiveMonitor implements Disposable {
 							cacheCreationInputTokens: entry.tokens.cache?.write ?? 0,
 							cacheReadInputTokens: entry.tokens.cache?.read ?? 0,
 						},
-						costUSD: entry.cost ?? 0,
+						costUSD,
 						model: entry.model,
 						version: undefined,
 						usageLimitResetTime: undefined,
@@ -224,7 +238,7 @@ export class LiveMonitor implements Disposable {
 		}
 
 		// If no active block found but we have a cached one, check if it's still valid
-		if (this.cachedActiveBlock != null) {
+		if (this.cachedActiveBlock != null && this.cachedActiveBlock.actualEndTime != null) {
 			const now = new Date();
 			const sessionDurationMs = this.config.sessionDurationHours * 60 * 60 * 1000;
 			const timeSinceLastEntry = now.getTime() - this.cachedActiveBlock.actualEndTime.getTime();
