@@ -290,7 +290,7 @@ function loadProjectData(projectPath: string): OpenCodeUsageEntry[] {
 /**
  * Load all OpenCode usage data
  */
-export function loadOpenCodeData(openCodePath?: string): OpenCodeUsageEntry[] {
+export function loadOpenCodeData(openCodePath?: string, suppressLogs = false): OpenCodeUsageEntry[] {
 	// If a specific path is provided (for testing), use only that
 	const directories = openCodePath != null ? [openCodePath] : getOpenCodeDirectories();
 	const allEntries: OpenCodeUsageEntry[] = [];
@@ -315,6 +315,8 @@ export function loadOpenCodeData(openCodePath?: string): OpenCodeUsageEntry[] {
 		}
 	}
 
-	logger.info(`Loaded ${allEntries.length} OpenCode usage entries`);
+	if (!suppressLogs) {
+		logger.info(`Loaded ${allEntries.length} OpenCode usage entries`);
+	}
 	return allEntries;
 }

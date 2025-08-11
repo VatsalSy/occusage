@@ -45,6 +45,7 @@ export class LiveMonitor implements Disposable {
 	private allEntries: LoadedUsageEntry[] = [];
 	private lastOpenCodeLoadTime = 0;
 	private openCodeHashes = new Set<string>();
+	private cachedActiveBlock: SessionBlock | null = null;
 
 	constructor(config: LiveMonitorConfig) {
 		this.config = config;
@@ -163,7 +164,7 @@ export class LiveMonitor implements Disposable {
 		const now = Date.now();
 		if (now - this.lastOpenCodeLoadTime > 5000) {
 			try {
-				const openCodeEntries = loadOpenCodeData();
+				const openCodeEntries = loadOpenCodeData(undefined, true); // Suppress logs during live monitoring
 
 				// Track new OpenCode entries using hashes to prevent duplicates
 				for (const entry of openCodeEntries) {
@@ -213,7 +214,32 @@ export class LiveMonitor implements Disposable {
 			: blocks.reverse();
 
 		// Find active block
-		return sortedBlocks.find(block => block.isActive) ?? null;
+		const activeBlock = sortedBlocks.find(block => block.isActive) ?? null;
+
+		// Use caching to prevent flickering during data updates
+		if (activeBlock != null) {
+			// Update cache with new valid block
+			this.cachedActiveBlock = activeBlock;
+			return activeBlock;
+		}
+
+		// If no active block found but we have a cached one, check if it's still valid
+		if (this.cachedActiveBlock != null) {
+			const now = new Date();
+			const sessionDurationMs = this.config.sessionDurationHours * 60 * 60 * 1000;
+			const timeSinceLastEntry = now.getTime() - this.cachedActiveBlock.actualEndTime.getTime();
+
+			// If the cached block is still within the session duration, keep using it
+			// This prevents flickering during OpenCode data refreshes
+			if (timeSinceLastEntry < sessionDurationMs && now < this.cachedActiveBlock.endTime) {
+				return this.cachedActiveBlock;
+			}
+
+			// Cached block is no longer valid
+			this.cachedActiveBlock = null;
+		}
+
+		return null;
 	}
 
 	/**
@@ -224,6 +250,7 @@ export class LiveMonitor implements Disposable {
 		// Only clear file timestamps to allow checking for new lines in files
 		// Do NOT clear processedHashes or allEntries to maintain data consistency
 		this.lastFileTimestamps.clear();
+		// Also don't clear cachedActiveBlock to prevent flickering
 	}
 }
 
