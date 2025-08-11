@@ -16,8 +16,17 @@ import { log, logger } from '../logger.ts';
 
 export const projectCommand = define({
 	name: 'project',
-	description: 'Show usage report grouped by project',
-	...sharedCommandConfig,
+	description: 'Show usage report grouped by project (current week by default)',
+	args: {
+		...sharedCommandConfig.args,
+		full: {
+			type: 'boolean',
+			short: 'f',
+			description: 'Show all projects without time restriction',
+			default: false,
+		},
+	},
+	toKebab: true,
 	async run(ctx) {
 		// --jq implies --json
 		const useJson = ctx.values.json || ctx.values.jq != null;
@@ -25,9 +34,30 @@ export const projectCommand = define({
 			logger.level = 0;
 		}
 
+		// Calculate current week boundaries if --full is not specified
+		let since = ctx.values.since;
+		let until = ctx.values.until;
+
+		if (!ctx.values.full && since == null && until == null) {
+			// Calculate current week (Monday to Sunday)
+			const now = new Date();
+			const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+			const mondayOffset = currentDay === 0 ? -6 : -(currentDay - 1); // Days to subtract to get to Monday
+			
+			const monday = new Date(now);
+			monday.setDate(now.getDate() + mondayOffset);
+			monday.setHours(0, 0, 0, 0);
+			
+			// Format as YYYYMMDD
+			const year = monday.getFullYear();
+			const month = String(monday.getMonth() + 1).padStart(2, '0');
+			const day = String(monday.getDate()).padStart(2, '0');
+			since = `${year}${month}${day}`;
+		}
+
 		const projectData = await loadUnifiedProjectData({
-			since: ctx.values.since,
-			until: ctx.values.until,
+			since,
+			until,
 			mode: ctx.values.mode,
 			order: ctx.values.order,
 			offline: ctx.values.offline,
