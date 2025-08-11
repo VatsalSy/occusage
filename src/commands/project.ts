@@ -189,7 +189,7 @@ export const projectCommand = define({
 
 			for (let i = 0; i < projectData.length; i++) {
 				const data = projectData[i];
-				
+
 				// Add visual separation before projects with multiple sources (but not before the first project)
 				if (!isFirstProject && !ctx.values.breakdown && data.sourceBreakdowns?.length > 1) {
 					// Add separator row before projects that have multiple sources
@@ -246,7 +246,7 @@ export const projectCommand = define({
 								formatCurrency(data.totalCost),
 								data.lastActivity,
 							]);
-							
+
 							// Add separator after TOTAL row (if not the last project)
 							if (i < projectData.length - 1) {
 								const separatorCols = 10;
@@ -270,7 +270,7 @@ export const projectCommand = define({
 						]);
 					}
 				}
-				
+
 				isFirstProject = false;
 			}
 

@@ -2394,19 +2394,19 @@ function extractProjectName(folderPath: string): string {
 		}
 		return 'unknown';
 	}
-	
+
 	// For Claude format (starts with dash)
 	const cleanPath = folderPath.startsWith('-') ? folderPath.slice(1) : folderPath;
-	
+
 	// Split by dashes and get the last two parts
 	const parts = cleanPath.split('-');
-	
+
 	// If we have at least 2 parts, join the last two
 	// This handles cases like localApps-occusage
 	if (parts.length >= 2) {
 		return parts.slice(-2).join('-');
 	}
-	
+
 	// Fallback to the last part if less than 2 parts
 	return parts[parts.length - 1] ?? 'unknown';
 }
