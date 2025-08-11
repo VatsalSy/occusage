@@ -1,8 +1,8 @@
 # Introduction
 
-![ccusage daily report showing token usage and costs by date](/screenshot.png)
+![occusage daily report showing token usage and costs by date](/screenshot.png)
 
-**ccusage** (claude-code-usage) is a powerful CLI tool that analyzes your Claude Code usage from local JSONL files to help you understand your token consumption patterns and estimated costs.
+**occusage** (claude-code-usage) is a powerful CLI tool that analyzes your Claude Code usage from local JSONL files to help you understand your token consumption patterns and estimated costs.
 
 ## The Problem
 
@@ -15,7 +15,7 @@ Claude Code's Max plan offers unlimited usage, which is fantastic! But many user
 
 ## The Solution
 
-ccusage analyzes the local JSONL files that Claude Code automatically generates and provides:
+occusage analyzes the local JSONL files that Claude Code automatically generates and provides:
 
 - **Detailed Usage Reports** - Daily, monthly, and session-based breakdowns
 - **Cost Analysis** - Estimated costs based on token usage and model pricing
@@ -27,14 +27,14 @@ ccusage analyzes the local JSONL files that Claude Code automatically generates 
 ```mermaid
 graph LR
     A[Claude Code] --> B[Local JSONL Files]
-    B --> C[ccusage]
+    B --> C[occusage]
     C --> D[Usage Reports]
     C --> E[Cost Analysis]
     C --> F[Live Monitoring]
 ```
 
 1. **Claude Code generates JSONL files** containing usage data
-2. **ccusage reads these files** from your local machine
+2. **occusage reads these files** from your local machine
 3. **Analyzes and aggregates** the data by date, session, or time blocks
 4. **Calculates estimated costs** using model pricing information
 5. **Presents results** in beautiful tables or JSON format
@@ -43,7 +43,7 @@ graph LR
 
 ### 🚀 Ultra-Small Bundle Size
 
-Unlike other CLI tools, we pay extreme attention to bundle size. ccusage achieves an incredibly small footprint even without minification, which means you can run it directly without installation using `bunx ccusage` for instant access.
+Unlike other CLI tools, we pay extreme attention to bundle size. occusage achieves an incredibly small footprint even without minification, which means you can run it directly without installation using `bunx occusage` for instant access.
 
 ### 📊 Multiple Report Types
 
@@ -76,7 +76,7 @@ Unlike other CLI tools, we pay extreme attention to bundle size. ccusage achieve
 
 ## Data Sources
 
-ccusage reads from Claude Code's local data directories:
+occusage reads from Claude Code's local data directories:
 
 - **New location**: `~/.config/claude/projects/` (Claude Code v1.0.30+)
 - **Legacy location**: `~/.claude/projects/` (pre-v1.0.30)
@@ -87,7 +87,7 @@ The tool automatically detects and aggregates data from both locations for compa
 
 - **100% Local** - All analysis happens on your machine
 - **No Data Transmission** - Your usage data never leaves your computer
-- **Read-Only** - ccusage only reads files, never modifies them
+- **Read-Only** - occusage only reads files, never modifies them
 - **Open Source** - Full transparency in how your data is processed
 
 ## Limitations

@@ -1,15 +1,15 @@
 # MCP Server
 
-ccusage includes a built-in Model Context Protocol (MCP) server that exposes usage data through standardized tools. This allows integration with other applications that support MCP.
+occusage includes a built-in Model Context Protocol (MCP) server that exposes usage data through standardized tools. This allows integration with other applications that support MCP.
 
 ## Starting the MCP Server
 
 ### stdio transport (default)
 
 ```bash
-ccusage mcp
+occusage mcp
 # or explicitly (--type stdio is optional):
-ccusage mcp --type stdio
+occusage mcp --type stdio
 ```
 
 The stdio transport is ideal for local integration where the client directly spawns the process.
@@ -17,7 +17,7 @@ The stdio transport is ideal for local integration where the client directly spa
 ### HTTP Stream Transport
 
 ```bash
-ccusage mcp --type http --port 8080
+occusage mcp --type http --port 8080
 ```
 
 The HTTP stream transport is best for remote access when you need to call the server from another machine or network location.
@@ -28,13 +28,13 @@ You can control how costs are calculated:
 
 ```bash
 # Use pre-calculated costs when available, calculate from tokens otherwise (default)
-ccusage mcp --mode auto
+occusage mcp --mode auto
 
 # Always calculate costs from tokens using model pricing
-ccusage mcp --mode calculate
+occusage mcp --mode calculate
 
 # Always use pre-calculated costUSD values only
-ccusage mcp --mode display
+occusage mcp --mode display
 ```
 
 ## Available MCP Tools
@@ -92,7 +92,7 @@ You can test the MCP server using the MCP Inspector for interactive debugging:
 bun run mcp
 
 # Test with the official MCP Inspector
-bunx @modelcontextprotocol/inspector bunx ccusage mcp
+bunx @modelcontextprotocol/inspector bunx occusage mcp
 ```
 
 The MCP Inspector provides a web-based interface to:
@@ -108,7 +108,7 @@ You can also manually test the server by running it and sending JSON-RPC message
 
 ```bash
 # Start the server
-ccusage mcp
+occusage mcp
 
 # The server will wait for JSON-RPC messages on stdin
 # Example: List available tools
@@ -121,7 +121,7 @@ ccusage mcp
 
 ![Claude Desktop MCP Configuration](/mcp-claude-desktop.avif)
 
-To use ccusage MCP with Claude Desktop, add this to your Claude Desktop configuration file:
+To use occusage MCP with Claude Desktop, add this to your Claude Desktop configuration file:
 
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
@@ -131,9 +131,9 @@ To use ccusage MCP with Claude Desktop, add this to your Claude Desktop configur
 ```json
 {
 	"mcpServers": {
-		"ccusage": {
+		"occusage": {
 			"command": "npx",
-			"args": ["ccusage@latest", "mcp"],
+			"args": ["occusage@latest", "mcp"],
 			"env": {}
 		}
 	}
@@ -142,13 +142,13 @@ To use ccusage MCP with Claude Desktop, add this to your Claude Desktop configur
 
 #### Using Global Installation
 
-If you have ccusage installed globally:
+If you have occusage installed globally:
 
 ```json
 {
 	"mcpServers": {
-		"ccusage": {
-			"command": "ccusage",
+		"occusage": {
+			"command": "occusage",
 			"args": ["mcp"],
 			"env": {}
 		}
@@ -163,9 +163,9 @@ You can specify custom Claude data directories and cost calculation modes:
 ```json
 {
 	"mcpServers": {
-		"ccusage": {
+		"occusage": {
 			"command": "npx",
-			"args": ["ccusage@latest", "mcp", "--mode", "calculate"],
+			"args": ["occusage@latest", "mcp", "--mode", "calculate"],
 			"env": {
 				"CLAUDE_CONFIG_DIR": "/path/to/your/claude/data"
 			}
@@ -174,7 +174,7 @@ You can specify custom Claude data directories and cost calculation modes:
 }
 ```
 
-After adding this configuration, restart Claude Desktop. You'll then be able to use the ccusage tools within Claude to analyze your usage data.
+After adding this configuration, restart Claude Desktop. You'll then be able to use the occusage tools within Claude to analyze your usage data.
 
 #### Available Commands in Claude Desktop
 
@@ -193,17 +193,17 @@ Once configured, you can ask Claude to:
 1. Verify the config file is in the correct location for your OS
 2. Check JSON syntax with a validator
 3. Restart Claude Desktop completely
-4. Ensure ccusage is installed and accessible
+4. Ensure occusage is installed and accessible
 
 **Common Issues:**
 
-- "Command not found": Install ccusage globally or use the npx configuration
+- "Command not found": Install occusage globally or use the npx configuration
 - "No usage data found": Verify your Claude Code data directory exists
 - Performance issues: Consider using `--mode display` or `--offline` flag
 
 ### With Other MCP Clients
 
-Any application that supports the Model Context Protocol can integrate with ccusage's MCP server. The server follows the MCP specification for tool discovery and execution.
+Any application that supports the Model Context Protocol can integrate with occusage's MCP server. The server follows the MCP specification for tool discovery and execution.
 
 ## Environment Variables
 
@@ -212,7 +212,7 @@ The MCP server respects the same environment variables as the CLI:
 - `CLAUDE_CONFIG_DIR`: Specify custom Claude data directory paths
   ```bash
   export CLAUDE_CONFIG_DIR="/path/to/claude"
-  ccusage mcp
+  occusage mcp
   ```
 
 ## Error Handling

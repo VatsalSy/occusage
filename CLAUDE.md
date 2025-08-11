@@ -209,7 +209,7 @@ This ensures code quality and catches issues immediately after changes.
 - **Placement**: Always place screenshots immediately after the main heading (H1) in documentation pages
 - **Purpose**: Provide immediate visual context to users before textual explanations
 - **Guides with Screenshots**:
-  - `/docs/guide/index.md` (What is ccusage) - Main usage screenshot
+  - `/docs/guide/index.md` (What is occusage) - Main usage screenshot
   - `/docs/guide/daily-reports.md` - Daily report output screenshot
   - `/docs/guide/live-monitoring.md` - Live monitoring dashboard screenshot
   - `/docs/guide/mcp-server.md` - Claude Desktop integration screenshot

@@ -1,19 +1,19 @@
 # Configuration
 
-ccusage supports various configuration options to customize its behavior and adapt to different Claude Code installations.
+occusage supports various configuration options to customize its behavior and adapt to different Claude Code installations.
 
 ## Environment Variables
 
 ### CLAUDE_CONFIG_DIR
 
-The `CLAUDE_CONFIG_DIR` environment variable specifies where ccusage should look for Claude Code data.
+The `CLAUDE_CONFIG_DIR` environment variable specifies where occusage should look for Claude Code data.
 
 #### Single Directory
 
 ```bash
 # Set a single custom Claude data directory
 export CLAUDE_CONFIG_DIR="/path/to/your/claude/data"
-ccusage daily
+occusage daily
 ```
 
 #### Multiple Directories
@@ -21,14 +21,14 @@ ccusage daily
 ```bash
 # Set multiple directories (comma-separated)
 export CLAUDE_CONFIG_DIR="/path/to/claude1,/path/to/claude2"
-ccusage daily
+occusage daily
 ```
 
-When multiple directories are specified, ccusage automatically aggregates usage data from all valid locations.
+When multiple directories are specified, occusage automatically aggregates usage data from all valid locations.
 
 ### LOG_LEVEL
 
-Control the verbosity of log output using the `LOG_LEVEL` environment variable. ccusage uses [consola](https://github.com/unjs/consola) for logging under the hood:
+Control the verbosity of log output using the `LOG_LEVEL` environment variable. occusage uses [consola](https://github.com/unjs/consola) for logging under the hood:
 
 ```bash
 # Set logging level
@@ -40,9 +40,9 @@ export LOG_LEVEL=4  # Debug logs
 export LOG_LEVEL=5  # Trace logs (most verbose)
 
 # Examples
-LOG_LEVEL=0 ccusage daily       # Silent output, only show results
-LOG_LEVEL=4 ccusage daily       # Debug output for troubleshooting
-LOG_LEVEL=5 ccusage session     # Trace all operations
+LOG_LEVEL=0 occusage daily       # Silent output, only show results
+LOG_LEVEL=4 occusage daily       # Debug output for troubleshooting
+LOG_LEVEL=5 occusage session     # Trace all operations
 ```
 
 #### Use Cases
@@ -59,7 +59,7 @@ Configure custom display names for project directories using the `CCUSAGE_PROJEC
 ```bash
 # Set custom project aliases
 export CCUSAGE_PROJECT_ALIASES="long-project-name=Short Name,uuid-project=My Project"
-ccusage daily --instances
+occusage daily --instances
 ```
 
 #### Format
@@ -80,18 +80,18 @@ export CCUSAGE_PROJECT_ALIASES="project1=Production API,project2=Dev Environment
 
 ```bash
 # Without aliases
-ccusage daily --instances
+occusage daily --instances
 # Shows: a2cd99ed-a586-4fe4-8f59-b0026409ec09
 
 # With aliases
 export CCUSAGE_PROJECT_ALIASES="a2cd99ed-a586-4fe4-8f59-b0026409ec09=My Project"
-ccusage daily --instances
+occusage daily --instances
 # Shows: My Project
 ```
 
 #### Project Name Formatting
 
-ccusage automatically formats complex project directory names into readable display names:
+occusage automatically formats complex project directory names into readable display names:
 
 **Automatic Cleanup:**
 - **Path Removal**: Strips common directory prefixes like `/Users/username/Development/`
@@ -121,18 +121,18 @@ a2cd99ed-a586-4fe4-8f59-b0026409ec09.jsonl
 
 ### Automatic Detection
 
-ccusage automatically searches for Claude Code data in these locations:
+occusage automatically searches for Claude Code data in these locations:
 
 - **`~/.config/claude/projects/`** - New default location (Claude Code v1.0.30+)
 - **`~/.claude/projects/`** - Legacy location (pre-v1.0.30)
 
 ::: info Directory Change
-The directory change from `~/.claude` to `~/.config/claude` in Claude Code v1.0.30 was an undocumented breaking change. ccusage handles both locations automatically for compatibility.
+The directory change from `~/.claude` to `~/.config/claude` in Claude Code v1.0.30 was an undocumented breaking change. occusage handles both locations automatically for compatibility.
 :::
 
 ### Search Priority
 
-When `CLAUDE_CONFIG_DIR` is not set, ccusage searches in this order:
+When `CLAUDE_CONFIG_DIR` is not set, occusage searches in this order:
 
 1. `~/.config/claude/projects/` (preferred)
 2. `~/.claude/projects/` (fallback)
@@ -143,43 +143,43 @@ Data from all valid directories is automatically combined.
 
 ### Global Options
 
-All ccusage commands support these configuration options:
+All occusage commands support these configuration options:
 
 ```bash
 # Date filtering
-ccusage daily --since 20250101 --until 20250630
+occusage daily --since 20250101 --until 20250630
 
 # Output format
-ccusage daily --json                    # JSON output
-ccusage daily --breakdown              # Per-model breakdown
+occusage daily --json                    # JSON output
+occusage daily --breakdown              # Per-model breakdown
 
 # Cost calculation modes
-ccusage daily --mode auto              # Use costUSD when available (default)
-ccusage daily --mode calculate         # Always calculate from tokens
-ccusage daily --mode display           # Always use pre-calculated costUSD
+occusage daily --mode auto              # Use costUSD when available (default)
+occusage daily --mode calculate         # Always calculate from tokens
+occusage daily --mode display           # Always use pre-calculated costUSD
 
 # Sort order
-ccusage daily --order desc             # Newest first (default)
-ccusage daily --order asc              # Oldest first
+occusage daily --order desc             # Newest first (default)
+occusage daily --order asc              # Oldest first
 
 # Offline mode
-ccusage daily --offline                # Use cached pricing data
-ccusage daily -O                       # Short alias
+occusage daily --offline                # Use cached pricing data
+occusage daily -O                       # Short alias
 
 # Timezone
-ccusage daily --timezone UTC           # Use UTC timezone
-ccusage daily -z America/New_York      # Use New York timezone
-ccusage daily --timezone Asia/Tokyo    # Use Tokyo timezone
+occusage daily --timezone UTC           # Use UTC timezone
+occusage daily -z America/New_York      # Use New York timezone
+occusage daily --timezone Asia/Tokyo    # Use Tokyo timezone
 
 # Locale
-ccusage daily --locale en-US           # US English (12-hour time)
-ccusage daily -l ja-JP                 # Japanese (24-hour time)
-ccusage daily --locale de-DE           # German (24-hour time)
+occusage daily --locale en-US           # US English (12-hour time)
+occusage daily -l ja-JP                 # Japanese (24-hour time)
+occusage daily --locale de-DE           # German (24-hour time)
 
 # Project analysis (daily command only)
-ccusage daily --instances              # Group by project
-ccusage daily --project myproject      # Filter to specific project
-ccusage daily --instances --project myproject  # Combined usage
+occusage daily --instances              # Group by project
+occusage daily --project myproject      # Filter to specific project
+occusage daily --instances --project myproject  # Combined usage
 ```
 
 ### Timezone Configuration
@@ -188,14 +188,14 @@ The `--timezone` option controls how dates are calculated for grouping usage dat
 
 ```bash
 # Use UTC timezone for consistent reports
-ccusage daily --timezone UTC
+occusage daily --timezone UTC
 
 # Use specific timezone
-ccusage daily --timezone America/New_York
-ccusage monthly -z Asia/Tokyo
+occusage daily --timezone America/New_York
+occusage monthly -z Asia/Tokyo
 
 # Default behavior (no timezone specified)
-ccusage daily  # Uses system's local timezone
+occusage daily  # Uses system's local timezone
 ```
 
 #### Timezone Effect
@@ -218,16 +218,16 @@ The `--locale` option controls date and time formatting:
 
 ```bash
 # Use US English locale (12-hour time format)
-ccusage daily --locale en-US
+occusage daily --locale en-US
 
 # Use Japanese locale (24-hour time format)
-ccusage blocks --locale ja-JP
+occusage blocks --locale ja-JP
 
 # Use German locale (24-hour time format)
-ccusage session -l de-DE
+occusage session -l de-DE
 
 # Default behavior (no locale specified)
-ccusage daily  # Uses en-CA (ISO date format, 24-hour time)
+occusage daily  # Uses en-CA (ISO date format, 24-hour time)
 ```
 
 #### Locale Effects
@@ -255,22 +255,22 @@ The locale affects how dates and times are displayed:
 
 ```bash
 # Debug pricing mismatches
-ccusage daily --debug
+occusage daily --debug
 
 # Show sample discrepancies
-ccusage daily --debug --debug-samples 10
+occusage daily --debug --debug-samples 10
 ```
 
 ## Cost Calculation Modes
 
-ccusage supports three different cost calculation modes:
+occusage supports three different cost calculation modes:
 
 ### auto (Default)
 
 Uses pre-calculated `costUSD` values when available, falls back to calculating costs from token counts:
 
 ```bash
-ccusage daily --mode auto
+occusage daily --mode auto
 ```
 
 - ✅ Most accurate when Claude provides cost data
@@ -282,7 +282,7 @@ ccusage daily --mode auto
 Always calculates costs from token counts using model pricing, ignores pre-calculated values:
 
 ```bash
-ccusage daily --mode calculate
+occusage daily --mode calculate
 ```
 
 - ✅ Consistent calculation method
@@ -294,7 +294,7 @@ ccusage daily --mode calculate
 Always uses pre-calculated `costUSD` values only, shows $0.00 for missing costs:
 
 ```bash
-ccusage daily --mode display
+occusage daily --mode display
 ```
 
 - ✅ Shows only Claude-provided cost data
@@ -303,12 +303,12 @@ ccusage daily --mode display
 
 ## Offline Mode
 
-ccusage can operate without network connectivity by using pre-cached pricing data:
+occusage can operate without network connectivity by using pre-cached pricing data:
 
 ```bash
 # Use offline mode
-ccusage daily --offline
-ccusage monthly -O
+occusage daily --offline
+occusage monthly -O
 ```
 
 ### When to Use Offline Mode
@@ -332,27 +332,27 @@ Cached pricing data is updated automatically when running in online mode. To ref
 
 ```bash
 # Run online to update cache
-ccusage daily
+occusage daily
 
 # Then use offline mode
-ccusage daily --offline
+occusage daily --offline
 ```
 
 ## MCP Server Configuration
 
-ccusage includes a built-in MCP (Model Context Protocol) server for integration with other tools.
+occusage includes a built-in MCP (Model Context Protocol) server for integration with other tools.
 
 ### Basic Usage
 
 ```bash
 # Start MCP server with stdio transport (default)
-ccusage mcp
+occusage mcp
 
 # Start with HTTP transport
-ccusage mcp --type http --port 8080
+occusage mcp --type http --port 8080
 
 # Configure cost calculation mode
-ccusage mcp --mode calculate
+occusage mcp --mode calculate
 ```
 
 ### Claude Desktop Integration
@@ -365,9 +365,9 @@ Add to your Claude Desktop configuration file:
 ```json
 {
 	"mcpServers": {
-		"ccusage": {
+		"occusage": {
 			"command": "npx",
-			"args": ["ccusage@latest", "mcp"],
+			"args": ["occusage@latest", "mcp"],
 			"env": {
 				"CLAUDE_CONFIG_DIR": "/custom/path/to/claude"
 			}
@@ -381,8 +381,8 @@ Or with global installation:
 ```json
 {
 	"mcpServers": {
-		"ccusage": {
-			"command": "ccusage",
+		"occusage": {
+			"command": "occusage",
 			"args": ["mcp"],
 			"env": {}
 		}
@@ -401,7 +401,7 @@ Each tool accepts `since`, `until`, `mode`, `timezone`, and `locale` parameters.
 
 ## Terminal Display Configuration
 
-ccusage automatically adapts its display based on terminal width:
+occusage automatically adapts its display based on terminal width:
 
 ### Wide Terminals (≥100 characters)
 
@@ -428,9 +428,9 @@ Currently, display mode is automatic based on terminal width. Future versions ma
 export CLAUDE_CONFIG_DIR="$HOME/.config/claude"
 
 # Add aliases for common commands
-alias ccu-daily="ccusage daily --breakdown"
-alias ccu-live="ccusage blocks --live"
-alias ccu-json="ccusage daily --json"
+alias ccu-daily="occusage daily --breakdown"
+alias ccu-live="occusage blocks --live"
+alias ccu-json="occusage daily --json"
 ```
 
 ### CI/CD Environment
@@ -438,7 +438,7 @@ alias ccu-json="ccusage daily --json"
 ```bash
 # Use offline mode in CI
 export CCUSAGE_OFFLINE=1
-ccusage daily --offline --json > usage-report.json
+occusage daily --offline --json > usage-report.json
 ```
 
 ### Multiple Team Members
@@ -446,7 +446,7 @@ ccusage daily --offline --json > usage-report.json
 ```bash
 # Each team member sets their own Claude directory
 export CLAUDE_CONFIG_DIR="/team-shared/claude-data/$USER"
-ccusage daily --since 20250101
+occusage daily --since 20250101
 ```
 
 ## Troubleshooting Configuration
@@ -455,7 +455,7 @@ ccusage daily --since 20250101
 
 #### No Data Found
 
-If ccusage reports no data found:
+If occusage reports no data found:
 
 ```bash
 # Check if Claude directories exist
@@ -467,7 +467,7 @@ echo $CLAUDE_CONFIG_DIR
 
 # Test with explicit environment variable
 export CLAUDE_CONFIG_DIR="/path/to/claude/projects"
-ccusage daily
+occusage daily
 ```
 
 #### Permission Errors
@@ -486,15 +486,15 @@ chmod -R 755 ~/.config/claude/
 
 ```bash
 # Run online first to cache pricing data
-ccusage daily
+occusage daily
 
 # Then use offline mode
-ccusage daily --offline
+occusage daily --offline
 ```
 
 ## Next Steps
 
-After configuring ccusage:
+After configuring occusage:
 
 - Learn about [Custom Paths](/guide/custom-paths) for advanced directory management
 - Explore [Cost Modes](/guide/cost-modes) for different calculation approaches

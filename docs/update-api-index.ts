@@ -13,8 +13,8 @@ const descriptions = {
 	'calculate-cost': 'Cost calculation utilities for usage data analysis',
 	'data-loader': 'Data loading utilities for Claude Code usage analysis',
 	'debug': 'Debug utilities for cost calculation validation',
-	'index': 'Main entry point for ccusage CLI tool',
-	'logger': 'Logging utilities for the ccusage application',
+	'index': 'Main entry point for occusage CLI tool',
+	'logger': 'Logging utilities for the occusage application',
 	'mcp': 'MCP (Model Context Protocol) server implementation',
 	'pricing-fetcher': 'Model pricing data fetcher for cost calculations',
 } as const;

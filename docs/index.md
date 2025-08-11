@@ -2,19 +2,19 @@
 layout: home
 
 hero:
-  name: ccusage
+  name: occusage
   text: Claude Code Usage Analysis
   tagline: A powerful CLI tool for analyzing Claude Code usage from local JSONL files
   image:
     src: /logo.svg
-    alt: ccusage logo
+    alt: occusage logo
   actions:
     - theme: brand
       text: Get Started
       link: /guide/
     - theme: alt
       text: View on GitHub
-      link: https://github.com/ryoppippi/ccusage
+      link: https://github.com/ryoppippi/occusage
 
 features:
   - icon: 📊
@@ -67,8 +67,8 @@ features:
 ---
 
 <div style="text-align: center; margin: 2rem 0;">
-  <h2 style="margin-bottom: 1rem;">Support ccusage</h2>
-  <p style="margin-bottom: 1.5rem;">If you find ccusage helpful, please consider sponsoring the development!</p>
+  <h2 style="margin-bottom: 1rem;">Support occusage</h2>
+  <p style="margin-bottom: 1.5rem;">If you find occusage helpful, please consider sponsoring the development!</p>
   
   <h3 style="margin-bottom: 1rem;">Featured Sponsor</h3>
   <p style="margin-bottom: 1rem;">Check out these <a href="https://www.youtube.com/watch?v=TiNpzxoBPz0&lc=UgyVgQyOhfJJlheVMcB4AaABAg" target="_blank">47 Claude Code ProTips from Greg Baugues.</a></p>

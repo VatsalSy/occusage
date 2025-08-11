@@ -1,6 +1,6 @@
 # JSON Output
 
-ccusage supports structured JSON output for all report types, making it easy to integrate with other tools, scripts, or applications that need to process usage data programmatically.
+occusage supports structured JSON output for all report types, making it easy to integrate with other tools, scripts, or applications that need to process usage data programmatically.
 
 ## Enabling JSON Output
 
@@ -8,16 +8,16 @@ Add the `--json` (or `-j`) flag to any command:
 
 ```bash
 # Daily report in JSON format
-ccusage daily --json
+occusage daily --json
 
 # Monthly report in JSON format
-ccusage monthly --json
+occusage monthly --json
 
 # Session report in JSON format
-ccusage session --json
+occusage session --json
 
 # 5-hour blocks report in JSON format
-ccusage blocks --json
+occusage blocks --json
 ```
 
 ## JSON Structure
@@ -101,13 +101,13 @@ When using `--instances`, daily reports group usage by project:
 
 ```bash
 # Standard aggregated output
-ccusage daily --json
+occusage daily --json
 
 # Project-grouped output  
-ccusage daily --instances --json
+occusage daily --instances --json
 
 # Filter to specific project
-ccusage daily --project my-frontend-app --json
+occusage daily --project my-frontend-app --json
 ```
 
 ### Monthly Reports
@@ -244,22 +244,22 @@ All filtering options work with JSON output:
 
 ```bash
 # Filter by date range
-ccusage daily --json --since 20250525 --until 20250530
+occusage daily --json --since 20250525 --until 20250530
 
 # Different cost calculation modes
-ccusage monthly --json --mode calculate
-ccusage session --json --mode display
+occusage monthly --json --mode calculate
+occusage session --json --mode display
 
 # Sort order
-ccusage daily --json --order asc
+occusage daily --json --order asc
 
 # With model breakdown
-ccusage daily --json --breakdown
+occusage daily --json --breakdown
 
 # Project analysis
-ccusage daily --json --instances                    # Group by project
-ccusage daily --json --project my-project           # Filter to project
-ccusage daily --json --instances --project my-app   # Combined usage
+occusage daily --json --instances                    # Group by project
+occusage daily --json --project my-project           # Filter to project
+occusage daily --json --instances --project my-app   # Combined usage
 ```
 
 ### Model Breakdown JSON
@@ -302,26 +302,26 @@ When using `--breakdown`, the JSON includes per-model details:
 
 ## Using the --jq Option
 
-ccusage includes built-in jq processing with the `--jq` option. This allows you to process JSON output directly without using pipes:
+occusage includes built-in jq processing with the `--jq` option. This allows you to process JSON output directly without using pipes:
 
 ```bash
 # Get total cost directly
-ccusage daily --jq '.totals.totalCost'
+occusage daily --jq '.totals.totalCost'
 
 # Find the most expensive session
-ccusage session --jq '.sessions | sort_by(.totalCost) | reverse | .[0]'
+occusage session --jq '.sessions | sort_by(.totalCost) | reverse | .[0]'
 
 # Get daily costs as CSV
-ccusage daily --jq '.daily[] | [.date, .totalCost] | @csv'
+occusage daily --jq '.daily[] | [.date, .totalCost] | @csv'
 
 # List all unique models used
-ccusage session --jq '[.sessions[].modelsUsed[]] | unique | sort[]'
+occusage session --jq '[.sessions[].modelsUsed[]] | unique | sort[]'
 
 # Get usage by specific date
-ccusage daily --jq '.daily[] | select(.date == "2025-05-30")'
+occusage daily --jq '.daily[] | select(.date == "2025-05-30")'
 
 # Calculate average daily cost
-ccusage daily --jq '[.daily[].totalCost] | add / length'
+occusage daily --jq '[.daily[].totalCost] | add / length'
 ```
 
 ### Important Notes
@@ -338,25 +338,25 @@ You can also pipe JSON output to jq for advanced filtering and formatting:
 
 ```bash
 # Get total cost for the last 7 days
-ccusage daily --json --since $(date -d '7 days ago' +%Y%m%d) | jq '.summary.totalCostUSD'
+occusage daily --json --since $(date -d '7 days ago' +%Y%m%d) | jq '.summary.totalCostUSD'
 
 # List all unique models used
-ccusage session --json | jq -r '.data[].models[]' | sort -u
+occusage session --json | jq -r '.data[].models[]' | sort -u
 
 # Find the most expensive session
-ccusage session --json | jq -r '.data | sort_by(.costUSD) | reverse | .[0].session'
+occusage session --json | jq -r '.data | sort_by(.costUSD) | reverse | .[0].session'
 
 # Get daily costs as CSV
-ccusage daily --json | jq -r '.daily[] | [.date, .totalCost] | @csv'
+occusage daily --json | jq -r '.daily[] | [.date, .totalCost] | @csv'
 
 # Analyze project costs
-ccusage daily --instances --json | jq -r '.projects | to_entries[] | [.key, (.value | map(.totalCost) | add)] | @csv'
+occusage daily --instances --json | jq -r '.projects | to_entries[] | [.key, (.value | map(.totalCost) | add)] | @csv'
 
 # Find most expensive project
-ccusage daily --instances --json | jq -r '.projects | to_entries | map({project: .key, total: (.value | map(.totalCost) | add)}) | sort_by(.total) | reverse | .[0].project'
+occusage daily --instances --json | jq -r '.projects | to_entries | map({project: .key, total: (.value | map(.totalCost) | add)}) | sort_by(.total) | reverse | .[0].project'
 
 # Get usage by project for specific date
-ccusage daily --instances --json | jq '.projects | to_entries[] | select(.value[].date == "2025-05-30") | {project: .key, usage: .value[0]}'
+occusage daily --instances --json | jq '.projects | to_entries[] | select(.value[].date == "2025-05-30") | {project: .key, usage: .value[0]}'
 ```
 
 ### Using with Python
@@ -366,7 +366,7 @@ import json
 import subprocess
 
 # Get daily usage data
-result = subprocess.run(['ccusage', 'daily', '--json'], capture_output=True, text=True)
+result = subprocess.run(['occusage', 'daily', '--json'], capture_output=True, text=True)
 data = json.loads(result.stdout)
 
 # Process the data
@@ -377,7 +377,7 @@ total_cost = data['totals']['totalCost']
 print(f"Total cost: ${total_cost:.2f}")
 
 # Project analysis example
-result = subprocess.run(['ccusage', 'daily', '--instances', '--json'], capture_output=True, text=True)
+result = subprocess.run(['occusage', 'daily', '--instances', '--json'], capture_output=True, text=True)
 project_data = json.loads(result.stdout)
 
 if 'projects' in project_data:
@@ -400,7 +400,7 @@ if 'projects' in project_data:
 import { execSync } from 'node:child_process';
 
 // Get session usage data
-const output = execSync('ccusage session --json', { encoding: 'utf-8' });
+const output = execSync('occusage session --json', { encoding: 'utf-8' });
 const data = JSON.parse(output);
 
 // Find sessions over $10
@@ -412,7 +412,7 @@ expensiveSessions.forEach((session) => {
 });
 
 // Project analysis example
-const projectOutput = execSync('ccusage daily --instances --json', { encoding: 'utf-8' });
+const projectOutput = execSync('occusage daily --instances --json', { encoding: 'utf-8' });
 const projectData = JSON.parse(projectOutput);
 
 if (projectData.projects) {

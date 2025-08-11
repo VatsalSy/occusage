@@ -7,7 +7,7 @@ Weekly reports aggregate your Claude Code usage by week, providing a mid-range v
 Show all weekly usage:
 
 ```bash
-ccusage weekly
+occusage weekly
 ```
 
 ## Example Output
@@ -45,11 +45,11 @@ Configure which day starts the week:
 
 ```bash
 # Start week on Sunday (default)
-ccusage weekly --start-of-week sunday
+occusage weekly --start-of-week sunday
 
 # Start week on Monday
-ccusage weekly --start-of-week monday
-ccusage weekly -w monday
+occusage weekly --start-of-week monday
+occusage weekly -w monday
 
 # Other options: tuesday, wednesday, thursday, friday, saturday
 ```
@@ -60,10 +60,10 @@ Filter by date range:
 
 ```bash
 # Show specific period
-ccusage weekly --since 20250601 --until 20250630
+occusage weekly --since 20250601 --until 20250630
 
 # Show last 4 weeks
-ccusage weekly --since 20250501
+occusage weekly --since 20250501
 ```
 
 ### Sort Order
@@ -72,10 +72,10 @@ Control the order of weeks:
 
 ```bash
 # Newest weeks first (default)
-ccusage weekly --order desc
+occusage weekly --order desc
 
 # Oldest weeks first
-ccusage weekly --order asc
+occusage weekly --order asc
 ```
 
 ### Model Breakdown
@@ -83,7 +83,7 @@ ccusage weekly --order asc
 See per-model weekly costs:
 
 ```bash
-ccusage weekly --breakdown
+occusage weekly --breakdown
 ```
 
 ```
@@ -103,7 +103,7 @@ ccusage weekly --breakdown
 Export weekly data as JSON:
 
 ```bash
-ccusage weekly --json
+occusage weekly --json
 ```
 
 ```json
@@ -149,10 +149,10 @@ Group weekly usage by project:
 
 ```bash
 # Show weekly usage per project
-ccusage weekly --instances
+occusage weekly --instances
 
 # Filter to specific project
-ccusage weekly --project my-project
+occusage weekly --project my-project
 ```
 
 ### Cost Calculation Modes
@@ -161,13 +161,13 @@ Control cost calculation:
 
 ```bash
 # Auto mode (default)
-ccusage weekly --mode auto
+occusage weekly --mode auto
 
 # Always calculate from tokens
-ccusage weekly --mode calculate
+occusage weekly --mode calculate
 
 # Only use pre-calculated costs
-ccusage weekly --mode display
+occusage weekly --mode display
 ```
 
 ### Offline Mode
@@ -175,7 +175,7 @@ ccusage weekly --mode display
 Use cached pricing data:
 
 ```bash
-ccusage weekly --offline
+occusage weekly --offline
 ```
 
 ## Common Use Cases
@@ -184,35 +184,35 @@ ccusage weekly --offline
 
 ```bash
 # See usage trends over past months
-ccusage weekly --since 20250401
+occusage weekly --since 20250401
 ```
 
 ### Sprint Analysis
 
 ```bash
 # Track usage during 2-week sprints (Monday start)
-ccusage weekly --start-of-week monday --since 20250601
+occusage weekly --start-of-week monday --since 20250601
 ```
 
 ### Budget Planning
 
 ```bash
 # Export for weekly budget tracking
-ccusage weekly --json > weekly-budget.json
+occusage weekly --json > weekly-budget.json
 ```
 
 ### Compare Workweeks
 
 ```bash
 # Monday-Friday work pattern analysis
-ccusage weekly --start-of-week monday --breakdown
+occusage weekly --start-of-week monday --breakdown
 ```
 
 ### Team Reporting
 
 ```bash
 # Weekly team usage report
-ccusage weekly --instances --start-of-week monday
+occusage weekly --instances --start-of-week monday
 ```
 
 ## Tips

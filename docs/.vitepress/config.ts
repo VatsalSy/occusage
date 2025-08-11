@@ -7,7 +7,7 @@ import typedocSidebar from '../api/typedoc-sidebar.json';
 import { cloudflareRedirect } from '@ryoppippi/vite-plugin-cloudflare-redirect'
 
 export default withMermaid(defineConfig({
-	title: 'ccusage',
+	title: 'occusage',
 	description: 'Usage analysis tool for Claude Code',
 	base: '/',
 	cleanUrls: true,
@@ -18,10 +18,10 @@ export default withMermaid(defineConfig({
 		['meta', { name: 'theme-color', content: '#646cff' }],
 		['meta', { property: 'og:type', content: 'website' }],
 		['meta', { property: 'og:locale', content: 'en' }],
-		['meta', { property: 'og:title', content: 'ccusage | Claude Code Usage Analysis' }],
-		['meta', { property: 'og:site_name', content: 'ccusage' }],
-		['meta', { property: 'og:image', content: 'https://cdn.jsdelivr.net/gh/ryoppippi/ccusage@main/docs/public/logo.png' }],
-		['meta', { property: 'og:url', content: 'https://github.com/ryoppippi/ccusage' }],
+		['meta', { property: 'og:title', content: 'occusage | Claude Code Usage Analysis' }],
+		['meta', { property: 'og:site_name', content: 'occusage' }],
+		['meta', { property: 'og:image', content: 'https://cdn.jsdelivr.net/gh/ryoppippi/occusage@main/docs/public/logo.png' }],
+		['meta', { property: 'og:url', content: 'https://github.com/ryoppippi/occusage' }],
 	],
 
 	themeConfig: {
@@ -33,11 +33,11 @@ export default withMermaid(defineConfig({
 			{
 				text: 'Links',
 				items: [
-					{ text: 'GitHub', link: 'https://github.com/ryoppippi/ccusage' },
-					{ text: 'npm', link: 'https://www.npmjs.com/package/ccusage' },
-					{ text: 'Changelog', link: 'https://github.com/ryoppippi/ccusage/releases' },
-					{ text: 'DeepWiki', link: 'https://deepwiki.com/ryoppippi/ccusage' },
-					{ text: 'Package Stats', link: 'https://tanstack.com/ccusage?npmPackage=ccusage' },
+					{ text: 'GitHub', link: 'https://github.com/ryoppippi/occusage' },
+					{ text: 'npm', link: 'https://www.npmjs.com/package/occusage' },
+					{ text: 'Changelog', link: 'https://github.com/ryoppippi/occusage/releases' },
+					{ text: 'DeepWiki', link: 'https://deepwiki.com/ryoppippi/occusage' },
+					{ text: 'Package Stats', link: 'https://tanstack.com/occusage?npmPackage=occusage' },
 				],
 			},
 		],
@@ -99,8 +99,8 @@ export default withMermaid(defineConfig({
 		},
 
 		socialLinks: [
-			{ icon: 'github', link: 'https://github.com/ryoppippi/ccusage' },
-			{ icon: 'npm', link: 'https://www.npmjs.com/package/ccusage' },
+			{ icon: 'github', link: 'https://github.com/ryoppippi/occusage' },
+			{ icon: 'npm', link: 'https://www.npmjs.com/package/occusage' },
 		],
 
 		footer: {
@@ -113,7 +113,7 @@ export default withMermaid(defineConfig({
 		},
 
 		editLink: {
-			pattern: 'https://github.com/ryoppippi/ccusage/edit/main/docs/:path',
+			pattern: 'https://github.com/ryoppippi/occusage/edit/main/docs/:path',
 			text: 'Edit this page on GitHub',
 		},
 
@@ -136,10 +136,10 @@ export default withMermaid(defineConfig({
 			cloudflareRedirect({
             mode: "generate",
             entries: [
-                { from: '/raycast', to: 'https://www.raycast.com/nyatinte/ccusage', status: 302 },
-                { from: '/gh', to: 'https://github.com/ryoppippi/ccusage', status: 302 },
-                { from: '/npm', to: 'https://www.npmjs.com/package/ccusage', status: 302 },
-                { from: '/deepwiki', to: 'https://deepwiki.com/ryoppippi/ccusage', status: 302 },
+                { from: '/raycast', to: 'https://www.raycast.com/nyatinte/occusage', status: 302 },
+                { from: '/gh', to: 'https://github.com/ryoppippi/occusage', status: 302 },
+                { from: '/npm', to: 'https://www.npmjs.com/package/occusage', status: 302 },
+                { from: '/deepwiki', to: 'https://deepwiki.com/ryoppippi/occusage', status: 302 },
             ]
         }),
 			groupIconVitePlugin(),

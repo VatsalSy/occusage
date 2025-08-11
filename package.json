@@ -1,18 +1,18 @@
 {
-	"name": "ccusage",
+	"name": "occusage",
 	"type": "module",
 	"version": "15.9.2",
 	"description": "Usage analysis tool for Claude Code",
 	"author": "ryoppippi",
 	"license": "MIT",
-	"funding": "https://github.com/ryoppippi/ccusage?sponsor=1",
-	"homepage": "https://github.com/ryoppippi/ccusage#readme",
+	"funding": "https://github.com/ryoppippi/occusage?sponsor=1",
+	"homepage": "https://github.com/ryoppippi/occusage#readme",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/ryoppippi/ccusage.git"
+		"url": "git+https://github.com/ryoppippi/occusage.git"
 	},
 	"bugs": {
-		"url": "https://github.com/ryoppippi/ccusage/issues"
+		"url": "https://github.com/ryoppippi/occusage/issues"
 	},
 	"exports": {
 		".": "./dist/index.js",

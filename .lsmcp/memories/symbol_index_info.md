@@ -3,12 +3,12 @@ created: 2025-08-10T20:53:29.066Z
 updated: 2025-08-10T20:53:29.066Z
 ---
 
-# ccusage Symbol Index Configuration
+# occusage Symbol Index Configuration
 
 ## Project Information
 
 - **Language**: TypeScript
-- **Root Directory**: /Users/ryoppippi/ghq/github.com/ryoppippi/ccusage
+- **Root Directory**: /Users/ryoppippi/ghq/github.com/ryoppippi/occusage
 - **Indexing Date**: 2025-08-10
 
 ## Index Configuration
@@ -35,9 +35,9 @@ updated: 2025-08-10T20:53:29.066Z
 
 ## Symbol Search Examples
 
-- Search by name: `search_symbol_from_index { "name": "main", "root": "/Users/ryoppippi/ghq/github.com/ryoppippi/ccusage" }`
-- Search by kind: `search_symbol_from_index { "kind": "Function", "root": "/Users/ryoppippi/ghq/github.com/ryoppippi/ccusage" }`
-- Get file symbols: `get_document_symbols { "filePath": "src/data-loader.ts", "root": "/Users/ryoppippi/ghq/github.com/ryoppippi/ccusage" }`
+- Search by name: `search_symbol_from_index { "name": "main", "root": "/Users/ryoppippi/ghq/github.com/ryoppippi/occusage" }`
+- Search by kind: `search_symbol_from_index { "kind": "Function", "root": "/Users/ryoppippi/ghq/github.com/ryoppippi/occusage" }`
+- Get file symbols: `get_document_symbols { "filePath": "src/data-loader.ts", "root": "/Users/ryoppippi/ghq/github.com/ryoppippi/occusage" }`
 
 ## Notes
 

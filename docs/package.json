@@ -1,8 +1,8 @@
 {
-  "name": "@ccusage/docs",
+  "name": "@occusage/docs",
   "version": "15.0.0",
   "private": true,
-  "description": "Documentation for ccusage",
+  "description": "Documentation for occusage",
   "type": "module",
   "scripts": {
     "build": "bun run docs:api && ROLLDOWN_OPTIONS_VALIDATION=loose vitepress build",

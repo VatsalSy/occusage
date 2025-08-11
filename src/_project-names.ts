@@ -63,8 +63,8 @@ export function clearAliasCache(): void {
  * @example
  * ```typescript
  * // Basic cleanup
- * parseProjectName('-Users-phaedrus-Development-ccusage')
- * // → 'ccusage'
+ * parseProjectName('-Users-phaedrus-Development-occusage')
+ * // → 'occusage'
  *
  * // Complex project with feature branch
  * parseProjectName('-Users-phaedrus-Development-adminifi-edugakko-api--feature-ticket-002-configure-dependabot')
@@ -170,11 +170,11 @@ function parseProjectName(projectName: string): string {
  * @example
  * ```typescript
  * // Without aliases
- * formatProjectName('-Users-phaedrus-Development-ccusage')
- * // → 'ccusage'
+ * formatProjectName('-Users-phaedrus-Development-occusage')
+ * // → 'occusage'
  *
- * // With alias (when CCUSAGE_PROJECT_ALIASES="ccusage=Usage Tracker")
- * formatProjectName('-Users-phaedrus-Development-ccusage')
+ * // With alias (when CCUSAGE_PROJECT_ALIASES="occusage=Usage Tracker")
+ * formatProjectName('-Users-phaedrus-Development-occusage')
  * // → 'Usage Tracker'
  * ```
  */
@@ -220,8 +220,8 @@ if (import.meta.vitest != null) {
 			});
 
 			it('extracts project names from Unix-style paths', () => {
-				expect(formatProjectName('-Users-phaedrus-Development-ccusage')).toBe('ccusage');
-				expect(formatProjectName('/Users/phaedrus/Development/ccusage')).toBe('ccusage');
+				expect(formatProjectName('-Users-phaedrus-Development-occusage')).toBe('occusage');
+				expect(formatProjectName('/Users/phaedrus/Development/occusage')).toBe('occusage');
 			});
 
 			it('handles complex project names with features', () => {
@@ -245,17 +245,17 @@ if (import.meta.vitest != null) {
 
 		describe('custom aliases', () => {
 			it('uses configured aliases', () => {
-				(process.env as Record<string, string | undefined>)[PROJECT_ALIASES_ENV] = 'ccusage=Usage Tracker,test=Test Project';
+				(process.env as Record<string, string | undefined>)[PROJECT_ALIASES_ENV] = 'occusage=Usage Tracker,test=Test Project';
 
-				expect(formatProjectName('ccusage')).toBe('Usage Tracker');
+				expect(formatProjectName('occusage')).toBe('Usage Tracker');
 				expect(formatProjectName('test')).toBe('Test Project');
 				expect(formatProjectName('other')).toBe('other');
 			});
 
 			it('applies aliases to parsed project names', () => {
-				(process.env as Record<string, string | undefined>)[PROJECT_ALIASES_ENV] = 'ccusage=Usage Tracker';
+				(process.env as Record<string, string | undefined>)[PROJECT_ALIASES_ENV] = 'occusage=Usage Tracker';
 
-				expect(formatProjectName('-Users-phaedrus-Development-ccusage')).toBe('Usage Tracker');
+				expect(formatProjectName('-Users-phaedrus-Development-occusage')).toBe('Usage Tracker');
 			});
 
 			it('handles malformed alias configuration gracefully', () => {

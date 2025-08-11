@@ -22,7 +22,7 @@ Add this to your `~/.claude/settings.json` or `~/.config/claude/settings.json`:
 {
   "statusLine": {
     "type": "command",
-    "command": "bun x ccusage statusline", // Use "npx -y ccusage statusline" if you prefer npm
+    "command": "bun x occusage statusline", // Use "npx -y occusage statusline" if you prefer npm
     "padding": 0  // Optional: set to 0 to let status line go to edge
   }
 }
@@ -38,7 +38,7 @@ If you need the latest pricing data from LiteLLM API, you can explicitly enable 
 {
   "statusLine": {
     "type": "command",
-    "command": "bun x ccusage statusline --no-offline", // Fetches latest pricing from API
+    "command": "bun x occusage statusline --no-offline", // Fetches latest pricing from API
     "padding": 0
   }
 }
@@ -92,15 +92,15 @@ The statusline command:
 ### No Output Displayed
 
 If the statusline doesn't show:
-1. Verify `ccusage` is in your PATH
+1. Verify `occusage` is in your PATH
 2. Check Claude Code logs for any errors
 3. Ensure you have valid usage data in your Claude data directory
 
 ### Incorrect Costs
 
 If costs seem incorrect:
-- The command uses the same cost calculation as other ccusage commands
-- Verify with `ccusage daily` or `ccusage blocks` for detailed breakdowns
+- The command uses the same cost calculation as other occusage commands
+- Verify with `occusage daily` or `occusage blocks` for detailed breakdowns
 
 ## Related Commands
 

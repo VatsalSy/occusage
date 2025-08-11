@@ -5,7 +5,7 @@ Session reports show your Claude Code usage grouped by individual conversation s
 ## Basic Usage
 
 ```bash
-ccusage session
+occusage session
 ```
 
 ## Example Output
@@ -57,36 +57,36 @@ Filter sessions by their last activity date:
 
 ```bash
 # Show sessions active since May 25th
-ccusage session --since 20250525
+occusage session --since 20250525
 
 # Show sessions active in a specific date range
-ccusage session --since 20250520 --until 20250530
+occusage session --since 20250520 --until 20250530
 
 # Show only recent sessions (last week)
-ccusage session --since $(date -d '7 days ago' +%Y%m%d)
+occusage session --since $(date -d '7 days ago' +%Y%m%d)
 ```
 
 ### Sort Order
 
 ```bash
 # Show most expensive sessions first (default)
-ccusage session --order desc
+occusage session --order desc
 
 # Show least expensive sessions first
-ccusage session --order asc
+occusage session --order asc
 ```
 
 ### Cost Calculation Modes
 
 ```bash
 # Use pre-calculated costs when available (default)
-ccusage session --mode auto
+occusage session --mode auto
 
 # Always calculate costs from tokens
-ccusage session --mode calculate
+occusage session --mode calculate
 
 # Only show pre-calculated costs
-ccusage session --mode display
+occusage session --mode display
 ```
 
 ### Model Breakdown
@@ -94,7 +94,7 @@ ccusage session --mode display
 See per-model cost breakdown within each session:
 
 ```bash
-ccusage session --breakdown
+occusage session --breakdown
 ```
 
 Example with breakdown:
@@ -116,7 +116,7 @@ Example with breakdown:
 Export session data as JSON for further analysis:
 
 ```bash
-ccusage session --json
+occusage session --json
 ```
 
 ```json
@@ -155,9 +155,9 @@ ccusage session --json
 Use cached pricing data without network access:
 
 ```bash
-ccusage session --offline
+occusage session --offline
 # or short form:
-ccusage session -O
+occusage session -O
 ```
 
 ## Analysis Use Cases
@@ -168,7 +168,7 @@ Session reports help you understand which conversations are most costly:
 
 ```bash
 # Find your most expensive sessions
-ccusage session --order desc
+occusage session --order desc
 ```
 
 Look at the top sessions to understand:
@@ -181,18 +181,18 @@ Look at the top sessions to understand:
 
 ```bash
 # See recent conversation activity
-ccusage session --since 20250615
+occusage session --since 20250615
 
 # Compare different time periods
-ccusage session --since 20250601 --until 20250615  # First half of month
-ccusage session --since 20250616 --until 20250630  # Second half of month
+occusage session --since 20250601 --until 20250615  # First half of month
+occusage session --since 20250616 --until 20250630  # Second half of month
 ```
 
 ### Model Usage Analysis
 
 ```bash
 # See which models you use in different conversations
-ccusage session --breakdown
+occusage session --breakdown
 ```
 
 This helps understand:
@@ -205,10 +205,10 @@ This helps understand:
 
 ```bash
 # Export data for spreadsheet analysis
-ccusage session --json > sessions.json
+occusage session --json > sessions.json
 
 # Find sessions above a certain cost threshold
-ccusage session --json | jq '.sessions[] | select(.totalCost > 50)'
+occusage session --json | jq '.sessions[] | select(.totalCost > 50)'
 ```
 
 ## Tips for Session Analysis
@@ -252,7 +252,7 @@ Session reports adapt to your terminal width:
 - **Wide terminals (≥100 chars)**: Shows all columns including cache metrics
 - **Narrow terminals (<100 chars)**: Compact mode with essential columns (Session, Models, Input, Output, Cost, Last Activity)
 
-When in compact mode, ccusage displays a message explaining how to see the full data.
+When in compact mode, occusage displays a message explaining how to see the full data.
 
 ## Related Commands
 

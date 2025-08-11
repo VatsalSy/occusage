@@ -1,10 +1,10 @@
 # Custom Paths
 
-ccusage supports flexible path configuration to handle various Claude Code installation scenarios and custom data locations.
+occusage supports flexible path configuration to handle various Claude Code installation scenarios and custom data locations.
 
 ## Overview
 
-By default, ccusage automatically detects Claude Code data in standard locations. However, you can customize these paths for:
+By default, occusage automatically detects Claude Code data in standard locations. However, you can customize these paths for:
 
 - **Multiple Claude installations** - Different versions or profiles
 - **Custom data locations** - Non-standard installation directories
@@ -24,9 +24,9 @@ Specify one custom directory:
 export CLAUDE_CONFIG_DIR="/path/to/your/claude/data"
 
 # Use with any command
-ccusage daily
-ccusage monthly --breakdown
-ccusage blocks --live
+occusage daily
+occusage monthly --breakdown
+occusage blocks --live
 ```
 
 Example scenarios:
@@ -67,7 +67,7 @@ When multiple paths are specified:
 
 ### Standard Locations
 
-When `CLAUDE_CONFIG_DIR` is not set, ccusage searches these locations automatically:
+When `CLAUDE_CONFIG_DIR` is not set, occusage searches these locations automatically:
 
 1. **`~/.config/claude/projects/`** - New default (Claude Code v1.0.30+)
 2. **`~/.claude/projects/`** - Legacy location (pre-v1.0.30)
@@ -75,7 +75,7 @@ When `CLAUDE_CONFIG_DIR` is not set, ccusage searches these locations automatica
 ### Version Compatibility
 
 ::: info Breaking Change
-Claude Code v1.0.30 moved data from `~/.claude` to `~/.config/claude` without documentation. ccusage handles both locations automatically for seamless compatibility.
+Claude Code v1.0.30 moved data from `~/.claude` to `~/.config/claude` without documentation. occusage handles both locations automatically for seamless compatibility.
 :::
 
 #### Migration Scenarios
@@ -86,8 +86,8 @@ Claude Code v1.0.30 moved data from `~/.claude` to `~/.config/claude` without do
 # Claude Code v1.0.30+ - uses new location
 ls ~/.config/claude/projects/
 
-# ccusage automatically finds data
-ccusage daily
+# occusage automatically finds data
+occusage daily
 ```
 
 **Scenario 2: Upgraded Installation**
@@ -99,8 +99,8 @@ ls ~/.claude/projects/
 # New data in new location
 ls ~/.config/claude/projects/
 
-# ccusage combines both automatically
-ccusage daily  # Shows data from both locations
+# occusage combines both automatically
+occusage daily  # Shows data from both locations
 ```
 
 **Scenario 3: Manual Migration**
@@ -108,14 +108,14 @@ ccusage daily  # Shows data from both locations
 ```bash
 # If you moved data manually
 export CLAUDE_CONFIG_DIR="/custom/location/claude"
-ccusage daily
+occusage daily
 ```
 
 ## Path Structure Requirements
 
 ### Expected Directory Structure
 
-ccusage expects this directory structure:
+occusage expects this directory structure:
 
 ```
 claude-data-directory/
@@ -133,7 +133,7 @@ claude-data-directory/
 
 ### Validation
 
-ccusage validates paths by checking:
+occusage validates paths by checking:
 
 - **Directory exists** and is readable
 - **Contains `projects/` subdirectory**
@@ -165,11 +165,11 @@ For team usage analysis:
 ```bash
 # Individual analysis
 export CLAUDE_CONFIG_DIR="/shared/claude-data/$USER"
-ccusage daily
+occusage daily
 
 # Team aggregate
 export CLAUDE_CONFIG_DIR="/shared/claude-data/alice,/shared/claude-data/bob"
-ccusage monthly --breakdown
+occusage monthly --breakdown
 ```
 
 ### Development vs Production
@@ -179,11 +179,11 @@ Separate environments:
 ```bash
 # Development environment
 export CLAUDE_CONFIG_DIR="/dev/claude-data"
-ccusage daily --since 20250101
+occusage daily --since 20250101
 
 # Production environment
 export CLAUDE_CONFIG_DIR="/prod/claude-data"
-ccusage daily --since 20250101
+occusage daily --since 20250101
 ```
 
 ### Historical Analysis
@@ -193,15 +193,15 @@ Analyzing archived or backup data:
 ```bash
 # Current month
 export CLAUDE_CONFIG_DIR="~/.config/claude"
-ccusage monthly
+occusage monthly
 
 # Compare with previous month backup
 export CLAUDE_CONFIG_DIR="/backup/claude-2024-12"
-ccusage monthly --since 20241201 --until 20241231
+occusage monthly --since 20241201 --until 20241231
 
 # Combined analysis
 export CLAUDE_CONFIG_DIR="~/.config/claude,/backup/claude-2024-12"
-ccusage monthly --since 20241201
+occusage monthly --since 20241201
 ```
 
 ## Shell Integration
@@ -238,13 +238,13 @@ For one-time analysis without changing environment:
 
 ```bash
 # Temporary override for single command
-CLAUDE_CONFIG_DIR="/tmp/claude-backup" ccusage daily
+CLAUDE_CONFIG_DIR="/tmp/claude-backup" occusage daily
 
 # Multiple commands with temporary override
 (
   export CLAUDE_CONFIG_DIR="/archive/claude-2024"
-  ccusage daily --json > 2024-report.json
-  ccusage monthly --breakdown > 2024-monthly.txt
+  occusage daily --json > 2024-report.json
+  occusage monthly --breakdown > 2024-monthly.txt
 )
 ```
 
@@ -254,9 +254,9 @@ Create convenient aliases:
 
 ```bash
 # ~/.bashrc or ~/.zshrc
-alias ccu-work="CLAUDE_CONFIG_DIR='/work/claude' ccusage"
-alias ccu-personal="CLAUDE_CONFIG_DIR='/personal/claude' ccusage"
-alias ccu-archive="CLAUDE_CONFIG_DIR='/archive/claude' ccusage"
+alias ccu-work="CLAUDE_CONFIG_DIR='/work/claude' occusage"
+alias ccu-personal="CLAUDE_CONFIG_DIR='/personal/claude' occusage"
+alias ccu-archive="CLAUDE_CONFIG_DIR='/archive/claude' occusage"
 
 # Usage
 ccu-work daily
@@ -273,7 +273,7 @@ ccu-period() {
   local path="/archive/claude-$period"
 
   if [[ -d "$path" ]]; then
-    CLAUDE_CONFIG_DIR="$path" ccusage daily --since "${period}01" --until "${period}31"
+    CLAUDE_CONFIG_DIR="$path" occusage daily --since "${period}01" --until "${period}31"
   else
     echo "Archive not found: $path"
   fi
@@ -286,22 +286,22 @@ ccu-period 202501  # January 2025
 
 ## MCP Integration with Custom Paths
 
-When using ccusage as an MCP server with custom paths:
+When using occusage as an MCP server with custom paths:
 
 ### Claude Desktop Configuration
 
 ```json
 {
 	"mcpServers": {
-		"ccusage": {
-			"command": "ccusage",
+		"occusage": {
+			"command": "occusage",
 			"args": ["mcp"],
 			"env": {
 				"CLAUDE_CONFIG_DIR": "/path/to/your/claude/data"
 			}
 		},
-		"ccusage-archive": {
-			"command": "ccusage",
+		"occusage-archive": {
+			"command": "occusage",
 			"args": ["mcp"],
 			"env": {
 				"CLAUDE_CONFIG_DIR": "/archive/claude-2024,/archive/claude-2025"
@@ -324,7 +324,7 @@ Check if your custom path is valid:
 ls -la "$CLAUDE_CONFIG_DIR/projects/"
 
 # Run with debug output
-ccusage daily --debug
+occusage daily --debug
 ```
 
 ### Common Issues
@@ -334,7 +334,7 @@ ccusage daily --debug
 ```bash
 # Error: Directory doesn't exist
 export CLAUDE_CONFIG_DIR="/nonexistent/path"
-ccusage daily
+occusage daily
 # Result: No data found
 
 # Solution: Verify path exists
@@ -346,7 +346,7 @@ ls -la /nonexistent/path
 ```bash
 # Error: Permission denied
 export CLAUDE_CONFIG_DIR="/root/.claude"
-ccusage daily  # May fail if no read permission
+occusage daily  # May fail if no read permission
 
 # Solution: Check permissions
 ls -la /root/.claude
@@ -385,7 +385,7 @@ export CLAUDE_CONFIG_DIR="/path1,/path2"  # ✅
 Use debug mode to troubleshoot path issues:
 
 ```bash
-ccusage daily --debug
+occusage daily --debug
 
 # Shows:
 # - Which paths are being searched
@@ -402,10 +402,10 @@ When using multiple paths with large data sets:
 
 ```bash
 # Filter by date to improve performance
-ccusage daily --since 20250101 --until 20250131
+occusage daily --since 20250101 --until 20250131
 
 # Use JSON output for programmatic processing
-ccusage daily --json | jq '.[] | select(.totalCost > 10)'
+occusage daily --json | jq '.[] | select(.totalCost > 10)'
 ```
 
 ### Network Paths

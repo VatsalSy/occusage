@@ -1,6 +1,6 @@
 # Sponsors
 
-Support ccusage development by becoming a sponsor! Your contribution helps maintain and improve this tool.
+Support occusage development by becoming a sponsor! Your contribution helps maintain and improve this tool.
 
 ## Featured Sponsor
 
@@ -20,14 +20,14 @@ Check out these [47 Claude Code ProTips from Greg Baugues.](https://www.youtube.
 
 ## How to Sponsor
 
-Visit [GitHub Sponsors - @ryoppippi](https://github.com/sponsors/ryoppippi) to support the development of ccusage and other open source projects.
+Visit [GitHub Sponsors - @ryoppippi](https://github.com/sponsors/ryoppippi) to support the development of occusage and other open source projects.
 
 ## Star History
 
-<a href="https://www.star-history.com/#ryoppippi/ccusage&Date">
+<a href="https://www.star-history.com/#ryoppippi/occusage&Date">
     <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ryoppippi/ccusage&type=Date&theme=dark" />
-        <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ryoppippi/ccusage&type=Date" />
-        <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ryoppippi/ccusage&type=Date" />
+        <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ryoppippi/occusage&type=Date&theme=dark" />
+        <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ryoppippi/occusage&type=Date" />
+        <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ryoppippi/occusage&type=Date" />
     </picture>
 </a>

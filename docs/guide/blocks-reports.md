@@ -5,7 +5,7 @@ Blocks reports show your Claude Code usage grouped by 5-hour billing windows, he
 ## Basic Usage
 
 ```bash
-ccusage blocks
+occusage blocks
 ```
 
 ## Example Output
@@ -62,7 +62,7 @@ Claude Code uses **5-hour billing windows** for session tracking:
 Focus on your current session with detailed projections:
 
 ```bash
-ccusage blocks --active
+occusage blocks --active
 ```
 
 This shows only the currently active block with:
@@ -76,7 +76,7 @@ This shows only the currently active block with:
 Display blocks from the last 3 days (including active):
 
 ```bash
-ccusage blocks --recent
+occusage blocks --recent
 ```
 
 Perfect for understanding recent usage patterns without scrolling through all historical data.
@@ -87,12 +87,12 @@ Set token limits to monitor quota usage:
 
 ```bash
 # Set explicit token limit
-ccusage blocks --token-limit 500000
+occusage blocks --token-limit 500000
 
 # Use highest previous block as limit
-ccusage blocks --token-limit max
+occusage blocks --token-limit max
 # or short form:
-ccusage blocks -t max
+occusage blocks -t max
 ```
 
 When limits are set, blocks display:
@@ -107,13 +107,13 @@ Real-time dashboard with automatic updates:
 
 ```bash
 # Basic live monitoring (uses -t max automatically)
-ccusage blocks --live
+occusage blocks --live
 
 # Live monitoring with explicit token limit
-ccusage blocks --live --token-limit 500000
+occusage blocks --live --token-limit 500000
 
 # Custom refresh interval (1-60 seconds)
-ccusage blocks --live --refresh-interval 5
+occusage blocks --live --refresh-interval 5
 ```
 
 Live monitoring features:
@@ -131,10 +131,10 @@ Change the block duration (default is 5 hours):
 
 ```bash
 # 3-hour blocks
-ccusage blocks --session-length 3
+occusage blocks --session-length 3
 
 # 8-hour blocks
-ccusage blocks --session-length 8
+occusage blocks --session-length 8
 ```
 
 ### Date Filtering
@@ -143,33 +143,33 @@ Filter blocks by date range:
 
 ```bash
 # Show blocks from specific date range
-ccusage blocks --since 20250620 --until 20250621
+occusage blocks --since 20250620 --until 20250621
 
 # Show blocks from last week
-ccusage blocks --since $(date -d '7 days ago' +%Y%m%d)
+occusage blocks --since $(date -d '7 days ago' +%Y%m%d)
 ```
 
 ### Sort Order
 
 ```bash
 # Show newest blocks first (default)
-ccusage blocks --order desc
+occusage blocks --order desc
 
 # Show oldest blocks first
-ccusage blocks --order asc
+occusage blocks --order asc
 ```
 
 ### Cost Calculation Modes
 
 ```bash
 # Use pre-calculated costs when available (default)
-ccusage blocks --mode auto
+occusage blocks --mode auto
 
 # Always calculate costs from tokens
-ccusage blocks --mode calculate
+occusage blocks --mode calculate
 
 # Only show pre-calculated costs
-ccusage blocks --mode display
+occusage blocks --mode display
 ```
 
 ### JSON Output
@@ -177,7 +177,7 @@ ccusage blocks --mode display
 Export block data for analysis:
 
 ```bash
-ccusage blocks --json
+occusage blocks --json
 ```
 
 ```json
@@ -207,9 +207,9 @@ ccusage blocks --json
 Use cached pricing data without network access:
 
 ```bash
-ccusage blocks --offline
+occusage blocks --offline
 # or short form:
-ccusage blocks -O
+occusage blocks -O
 ```
 
 ## Analysis Use Cases
@@ -220,7 +220,7 @@ Understanding 5-hour windows helps with:
 
 ```bash
 # Check current active block
-ccusage blocks --active
+occusage blocks --active
 ```
 
 - **Time Management**: Know how much time remains in current session
@@ -231,7 +231,7 @@ ccusage blocks --active
 
 ```bash
 # Find your highest usage patterns
-ccusage blocks -t max --recent
+occusage blocks -t max --recent
 ```
 
 - **Peak Usage Identification**: Which blocks consumed the most tokens
@@ -242,7 +242,7 @@ ccusage blocks -t max --recent
 
 ```bash
 # Monitor active sessions in real-time
-ccusage blocks --live -t max
+occusage blocks --live -t max
 ```
 
 Perfect for:
@@ -255,10 +255,10 @@ Perfect for:
 
 ```bash
 # Export data for detailed analysis
-ccusage blocks --json > blocks-history.json
+occusage blocks --json > blocks-history.json
 
 # Analyze patterns over time
-ccusage blocks --since 20250601 --until 20250630
+occusage blocks --since 20250601 --until 20250630
 ```
 
 ## Block Analysis Tips

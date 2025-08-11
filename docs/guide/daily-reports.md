@@ -9,12 +9,12 @@ Daily reports show token usage and costs aggregated by calendar date, giving you
 Show all daily usage:
 
 ```bash
-ccusage daily
+occusage daily
 # or simply:
-ccusage
+occusage
 ```
 
-The daily command is the default, so you can omit it when running ccusage.
+The daily command is the default, so you can omit it when running occusage.
 
 ## Example Output
 
@@ -37,7 +37,7 @@ The daily command is the default, so you can omit it when running ccusage.
 
 ### Responsive Display
 
-ccusage automatically adapts to your terminal width:
+occusage automatically adapts to your terminal width:
 
 - **Wide terminals (≥100 chars)**: Shows all columns
 - **Narrow terminals (<100 chars)**: Compact mode with essential columns only
@@ -50,13 +50,13 @@ Filter reports by date range:
 
 ```bash
 # Show usage from December 2024
-ccusage daily --since 20241201 --until 20241231
+occusage daily --since 20241201 --until 20241231
 
 # Show last week
-ccusage daily --since 20241215 --until 20241222
+occusage daily --since 20241215 --until 20241222
 
 # Show usage since a specific date
-ccusage daily --since 20241201
+occusage daily --since 20241201
 ```
 
 ### Sort Order
@@ -65,10 +65,10 @@ Control the order of dates:
 
 ```bash
 # Newest dates first (default)
-ccusage daily --order desc
+occusage daily --order desc
 
 # Oldest dates first
-ccusage daily --order asc
+occusage daily --order asc
 ```
 
 ### Cost Calculation Modes
@@ -77,13 +77,13 @@ Control how costs are calculated:
 
 ```bash
 # Use pre-calculated costs when available (default)
-ccusage daily --mode auto
+occusage daily --mode auto
 
 # Always calculate costs from tokens
-ccusage daily --mode calculate
+occusage daily --mode calculate
 
 # Only show pre-calculated costs
-ccusage daily --mode display
+occusage daily --mode display
 ```
 
 ### Model Breakdown
@@ -91,7 +91,7 @@ ccusage daily --mode display
 See per-model cost breakdown:
 
 ```bash
-ccusage daily --breakdown
+occusage daily --breakdown
 ```
 
 This shows costs split by individual models:
@@ -113,7 +113,7 @@ This shows costs split by individual models:
 Export data as JSON for further analysis:
 
 ```bash
-ccusage daily --json
+occusage daily --json
 ```
 
 ```json
@@ -147,9 +147,9 @@ ccusage daily --json
 Use cached pricing data without network access:
 
 ```bash
-ccusage daily --offline
+occusage daily --offline
 # or short form:
-ccusage daily -O
+occusage daily -O
 ```
 
 ### Project Analysis
@@ -158,8 +158,8 @@ Group usage by project instead of aggregating across all projects:
 
 ```bash
 # Group daily usage by project
-ccusage daily --instances
-ccusage daily -i
+occusage daily --instances
+occusage daily -i
 ```
 
 When using `--instances`, the report shows usage for each project separately:
@@ -186,11 +186,11 @@ Filter to a specific project:
 
 ```bash
 # Show only usage from "my-project"
-ccusage daily --project my-project
-ccusage daily -p my-project
+occusage daily --project my-project
+occusage daily -p my-project
 
 # Combine with instances flag
-ccusage daily --instances --project my-project
+occusage daily --instances --project my-project
 ```
 
 ## Common Use Cases
@@ -199,47 +199,47 @@ ccusage daily --instances --project my-project
 
 ```bash
 # See December 2024 usage
-ccusage daily --since 20241201 --until 20241231
+occusage daily --since 20241201 --until 20241231
 ```
 
 ### Find Expensive Days
 
 ```bash
 # Sort by cost (highest first)
-ccusage daily --order desc
+occusage daily --order desc
 ```
 
 ### Export for Spreadsheet Analysis
 
 ```bash
-ccusage daily --json > december-usage.json
+occusage daily --json > december-usage.json
 ```
 
 ### Compare Model Usage
 
 ```bash
 # See which models you use most
-ccusage daily --breakdown
+occusage daily --breakdown
 ```
 
 ### Check Recent Activity
 
 ```bash
 # Last 7 days
-ccusage daily --since $(date -d '7 days ago' +%Y%m%d)
+occusage daily --since $(date -d '7 days ago' +%Y%m%d)
 ```
 
 ### Analyze Project Usage
 
 ```bash
 # See usage breakdown by project
-ccusage daily --instances
+occusage daily --instances
 
 # Track specific project costs
-ccusage daily --project my-important-project --since 20250601
+occusage daily --project my-important-project --since 20250601
 
 # Compare project usage with JSON export
-ccusage daily --instances --json > project-analysis.json
+occusage daily --instances --json > project-analysis.json
 ```
 
 ### Team Usage Analysis
@@ -249,7 +249,7 @@ ccusage daily --instances --json > project-analysis.json
 export CCUSAGE_PROJECT_ALIASES="uuid-project=Frontend App,long-name=Backend API"
 
 # Generate team report with readable project names
-ccusage daily --instances --since 20250601
+occusage daily --instances --since 20250601
 ```
 
 ## Tips

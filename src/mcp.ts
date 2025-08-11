@@ -1,7 +1,7 @@
 /**
  * @fileoverview MCP (Model Context Protocol) server implementation
  *
- * This module provides MCP server functionality for exposing ccusage data
+ * This module provides MCP server functionality for exposing occusage data
  * through the Model Context Protocol. It includes both stdio and HTTP transport
  * options for integration with various MCP clients.
  *
