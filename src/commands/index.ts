@@ -24,9 +24,9 @@ subCommands.set('mcp', mcpCommand);
 subCommands.set('statusline', statuslineCommand);
 
 /**
- * Default command when no subcommand is specified (defaults to daily)
+ * Default command when no subcommand is specified (defaults to today)
  */
-const mainCommand = dailyCommand;
+const mainCommand = todayCommand;
 
 // eslint-disable-next-line antfu/no-top-level-await
 await cli(process.argv.slice(2), mainCommand, {
