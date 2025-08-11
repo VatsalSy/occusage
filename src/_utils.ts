@@ -1,4 +1,6 @@
 import process from 'node:process';
+import type { ModelBreakdown } from './data-loader.ts';
+import type { ModelName } from './_types.ts';
 import Table from 'cli-table3';
 import { uniq } from 'es-toolkit';
 import pc from 'picocolors';
@@ -343,6 +345,44 @@ export function formatModelsDisplayMultiline(models: string[]): string {
 	// Format array of models for display with newlines and bullet points
 	const uniqueModels = uniq(models.map(formatModelName));
 	return uniqueModels.sort().map(model => `- ${model}`).join('\n');
+}
+
+/**
+ * Aggregate an array of model breakdowns by model name and sort by cost desc
+ */
+export function aggregateModelBreakdowns(breakdowns: ModelBreakdown[]): ModelBreakdown[] {
+  const modelAggregates = new Map<string, {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+    cost: number;
+  }>();
+
+  for (const breakdown of breakdowns) {
+    const existing = modelAggregates.get(breakdown.modelName) ?? {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+      cost: 0,
+    };
+
+    modelAggregates.set(breakdown.modelName, {
+      inputTokens: existing.inputTokens + breakdown.inputTokens,
+      outputTokens: existing.outputTokens + breakdown.outputTokens,
+      cacheCreationTokens: existing.cacheCreationTokens + breakdown.cacheCreationTokens,
+      cacheReadTokens: existing.cacheReadTokens + breakdown.cacheReadTokens,
+      cost: existing.cost + breakdown.cost,
+    });
+  }
+
+  return Array.from(modelAggregates.entries())
+    .map(([modelName, stats]) => ({
+      modelName: modelName as ModelName,
+      ...stats,
+    }))
+    .sort((a, b) => b.cost - a.cost);
 }
 
 /**

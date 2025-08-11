@@ -8,7 +8,7 @@ import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
 
 import { sharedCommandConfig } from '../_shared-args.ts';
-import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
+import { aggregateModelBreakdowns, formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
 	createTotalsObject,
@@ -21,41 +21,8 @@ import { log, logger } from '../logger.ts';
 /**
  * Aggregates model breakdowns across all sources for a daily entry
  */
-function aggregateDailyModelBreakdowns(data: DailyUsage): ModelBreakdown[] {
-	const modelAggregates = new Map<string, {
-		inputTokens: number;
-		outputTokens: number;
-		cacheCreationTokens: number;
-		cacheReadTokens: number;
-		cost: number;
-	}>();
-
-	// Aggregate from existing model breakdowns
-	for (const breakdown of data.modelBreakdowns) {
-		const existing = modelAggregates.get(breakdown.modelName) ?? {
-			inputTokens: 0,
-			outputTokens: 0,
-			cacheCreationTokens: 0,
-			cacheReadTokens: 0,
-			cost: 0,
-		};
-
-		modelAggregates.set(breakdown.modelName, {
-			inputTokens: existing.inputTokens + breakdown.inputTokens,
-			outputTokens: existing.outputTokens + breakdown.outputTokens,
-			cacheCreationTokens: existing.cacheCreationTokens + breakdown.cacheCreationTokens,
-			cacheReadTokens: existing.cacheReadTokens + breakdown.cacheReadTokens,
-			cost: existing.cost + breakdown.cost,
-		});
-	}
-
-	// Convert to ModelBreakdown array and sort by cost descending
-	return Array.from(modelAggregates.entries())
-		.map(([modelName, stats]) => ({
-			modelName: modelName as ModelName,
-			...stats,
-		}))
-		.sort((a, b) => b.cost - a.cost);
+function aggregateDailyModelBreakdowns(data: DailyUsage) {
+    return aggregateModelBreakdowns(data.modelBreakdowns);
 }
 
 export const dailyCommand = define({
@@ -254,15 +221,13 @@ export const dailyCommand = define({
 					]);
 
 					// Add model breakdown rows with aggregated data
-					const aggregatedBreakdowns = aggregateDailyModelBreakdowns(data);
+                    const aggregatedBreakdowns = aggregateDailyModelBreakdowns(data);
 					// In breakdown mode, we need: ['', '└─ model', data...]
 					for (const breakdown of aggregatedBreakdowns) {
 						const totalTokens = breakdown.inputTokens + breakdown.outputTokens
 							+ breakdown.cacheCreationTokens + breakdown.cacheReadTokens;
 
-						// Format model name (e.g., "claude-sonnet-4-20250514" -> "sonnet-4")
-						const match = breakdown.modelName.match(/claude-(\w+)-(\d+)-\d+/);
-						const formattedModelName = match != null ? `${match[1]}-${match[2]}` : breakdown.modelName;
+                        const formattedModelName = formatModelName(breakdown.modelName);
 
 						table.push([
 							'', // Empty Date column

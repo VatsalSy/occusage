@@ -1,12 +1,11 @@
-import type { ModelName } from '../_types.ts';
-import type { ModelBreakdown, MonthlyUsage } from '../data-loader.ts';
+import type { MonthlyUsage } from '../data-loader.ts';
 import process from 'node:process';
 import { Result } from '@praha/byethrow';
 import { define } from 'gunshi';
 import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
 import { sharedArgs } from '../_shared-args.ts';
-import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
+import { aggregateModelBreakdowns, formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
 	createTotalsObject,
@@ -20,41 +19,8 @@ import { log, logger } from '../logger.ts';
  * Aggregates model breakdowns across all sources for a monthly period
  * This ensures we show combined totals per model in breakdown mode
  */
-function aggregateMonthlyModelBreakdowns(data: MonthlyUsage): ModelBreakdown[] {
-	const modelAggregates = new Map<string, {
-		inputTokens: number;
-		outputTokens: number;
-		cacheCreationTokens: number;
-		cacheReadTokens: number;
-		cost: number;
-	}>();
-
-	// Aggregate from existing model breakdowns
-	for (const breakdown of data.modelBreakdowns) {
-		const existing = modelAggregates.get(breakdown.modelName) ?? {
-			inputTokens: 0,
-			outputTokens: 0,
-			cacheCreationTokens: 0,
-			cacheReadTokens: 0,
-			cost: 0,
-		};
-
-		modelAggregates.set(breakdown.modelName, {
-			inputTokens: existing.inputTokens + breakdown.inputTokens,
-			outputTokens: existing.outputTokens + breakdown.outputTokens,
-			cacheCreationTokens: existing.cacheCreationTokens + breakdown.cacheCreationTokens,
-			cacheReadTokens: existing.cacheReadTokens + breakdown.cacheReadTokens,
-			cost: existing.cost + breakdown.cost,
-		});
-	}
-
-	// Convert to ModelBreakdown array and sort by cost descending
-	return Array.from(modelAggregates.entries())
-		.map(([modelName, stats]) => ({
-			modelName: modelName as ModelName,
-			...stats,
-		}))
-		.sort((a, b) => b.cost - a.cost);
+function aggregateMonthlyModelBreakdowns(data: MonthlyUsage) {
+    return aggregateModelBreakdowns(data.modelBreakdowns);
 }
 
 export const monthlyCommand = define({
@@ -76,6 +42,13 @@ export const monthlyCommand = define({
 		if (useJson) {
 			logger.level = 0;
 		}
+
+        // Validate startOfMonth is within 1-31
+        const startOfMonth = Number(ctx.values.startOfMonth);
+        if (Number.isFinite(startOfMonth) && (startOfMonth < 1 || startOfMonth > 31)) {
+            logger.error('Start of month must be between 1 and 31');
+            process.exit(1);
+        }
 
 		const monthlyData = await loadUnifiedMonthlyUsageData({
 			since: ctx.values.since,
@@ -261,14 +234,12 @@ export const monthlyCommand = define({
 					]);
 
 					// Add model breakdown rows with aggregated data
-					const aggregatedBreakdowns = aggregateMonthlyModelBreakdowns(data);
+                    const aggregatedBreakdowns = aggregateMonthlyModelBreakdowns(data);
 					for (const breakdown of aggregatedBreakdowns) {
 						const totalTokens = breakdown.inputTokens + breakdown.outputTokens
 							+ breakdown.cacheCreationTokens + breakdown.cacheReadTokens;
 
-						// Format model name (e.g., "claude-sonnet-4-20250514" -> "sonnet-4")
-						const match = breakdown.modelName.match(/claude-(\w+)-(\d+)-\d+/);
-						const formattedModelName = match != null ? `${match[1]}-${match[2]}` : breakdown.modelName;
+                        const formattedModelName = formatModelName(breakdown.modelName);
 
 						table.push([
 							'', // Empty Month column
