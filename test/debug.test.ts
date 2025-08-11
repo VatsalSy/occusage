@@ -67,6 +67,22 @@ describe('debug.ts', () => {
 				matches: 6,
 				mismatches: 2,
 				discrepancies: [],
+				modelStats: new Map([
+					['claude-sonnet-4-20250514', {
+						total: 8,
+						matches: 6,
+						mismatches: 2,
+						avgPercentDiff: 5.0
+					}]
+				]),
+				versionStats: new Map([
+					['1.0.0', {
+						total: 8,
+						matches: 6,
+						mismatches: 2,
+						avgPercentDiff: 5.0
+					}]
+				])
 			};
 
 			// Should not throw

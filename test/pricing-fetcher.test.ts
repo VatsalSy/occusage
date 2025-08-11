@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PricingFetcher } from '../src/pricing-fetcher.ts';
+import { Result } from '@praha/byethrow';
 
 describe('pricing-fetcher', () => {
 	describe('pricingFetcher class', () => {
@@ -9,13 +10,14 @@ describe('pricing-fetcher', () => {
 		});
 
 		it('should calculate costs directly with model name', async () => {
-			await using fetcher = new PricingFetcher();
-			const cost = await fetcher.calculateCost('claude-sonnet-4-20250514', {
-				inputTokens: 1000,
-				outputTokens: 500,
-				cacheCreationInputTokens: 0,
-				cacheReadInputTokens: 0,
-			});
+			await using fetcher = new PricingFetcher(true); // Use offline mode for tests
+			const result = await fetcher.calculateCostFromTokens({
+				input_tokens: 1000,
+				output_tokens: 500,
+				cache_creation_input_tokens: 0,
+				cache_read_input_tokens: 0,
+			}, 'claude-sonnet-4-20250514');
+			const cost = Result.unwrap(result);
 			expect(typeof cost).toBe('number');
 			expect(cost).toBeGreaterThanOrEqual(0);
 		});
@@ -24,14 +26,11 @@ describe('pricing-fetcher', () => {
 	describe('fetchModelPricing', () => {
 		it('should fetch and parse pricing data from LiteLLM', async () => {
 			// This test may fail due to network issues - that's expected
-			try {
-				await using fetcher = new PricingFetcher();
-				const pricing = await fetcher.fetchModelPricing();
-				expect(Array.isArray(pricing)).toBe(true);
-			} catch (error) {
-				// Network errors are acceptable in tests
-				expect(error).toBeDefined();
-			}
+			await using fetcher = new PricingFetcher(true); // Use offline mode for tests
+			const result = await fetcher.fetchModelPricing();
+			const pricing = Result.unwrap(result);
+			expect(pricing).toBeInstanceOf(Map);
+			expect(pricing.size).toBeGreaterThan(0);
 		});
 	});
 
