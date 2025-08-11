@@ -1,4 +1,4 @@
-import type { OpenCodeMessage, OpenCodePart, OpenCodeSessionInfo, OpenCodeUsageEntry } from './_opencode-types.ts';
+import type { OpenCodeMessage, OpenCodePart, OpenCodeUsageEntry } from './_opencode-types.ts';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
@@ -9,10 +9,8 @@ import {
 	USER_HOME_DIR,
 } from './_consts.ts';
 import {
-
 	opencodeMessageSchema,
 	opencodePartSchema,
-	opencodeSessionInfoSchema,
 } from './_opencode-types.ts';
 import { logger } from './logger.ts';
 
@@ -47,28 +45,7 @@ export function getOpenCodeDirectories(): string[] {
 	return [];
 }
 
-/**
- * Load session info from OpenCode
- */
-// eslint-disable-next-line ts/no-unused-vars
-function _loadSessionInfo(sessionPath: string, sessionId: string): OpenCodeSessionInfo | null {
-	const infoPath = join(sessionPath, 'info', `${sessionId}.json`);
 
-	if (!existsSync(infoPath)) {
-		return null;
-	}
-
-	try {
-		const content = readFileSync(infoPath, 'utf-8');
-		const parsed = JSON.parse(content) as unknown;
-		const validated = opencodeSessionInfoSchema.parse(parsed);
-		return validated;
-	}
-	catch {
-		logger.warn('Failed to parse OpenCode session info:', infoPath);
-		return null;
-	}
-}
 
 /**
  * Load messages from OpenCode session
