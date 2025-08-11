@@ -44,6 +44,7 @@ export class LiveMonitor implements Disposable {
 	private processedHashes = new Set<string>();
 	private allEntries: LoadedUsageEntry[] = [];
 	private lastOpenCodeLoadTime = 0;
+	private openCodeHashes = new Set<string>();
 
 	constructor(config: LiveMonitorConfig) {
 		this.config = config;
@@ -158,17 +159,25 @@ export class LiveMonitor implements Disposable {
 			}
 		}
 
-		// Load OpenCode data periodically (every 10 seconds to avoid excessive loading)
+		// Load OpenCode data periodically (every 5 seconds to balance responsiveness and performance)
 		const now = Date.now();
-		if (now - this.lastOpenCodeLoadTime > 10000) {
+		if (now - this.lastOpenCodeLoadTime > 5000) {
 			try {
 				const openCodeEntries = loadOpenCodeData();
 
-				// Filter out existing OpenCode entries and add new ones
-				this.allEntries = this.allEntries.filter(e => e.source !== 'opencode');
-
+				// Track new OpenCode entries using hashes to prevent duplicates
 				for (const entry of openCodeEntries) {
-					// Convert to LoadedUsageEntry format
+					// Create a unique hash for this OpenCode entry
+					const entryHash = `opencode-${entry.timestamp.toISOString()}-${entry.model}-${entry.tokens.input}-${entry.tokens.output}`;
+
+					// Skip if we've already processed this entry
+					if (this.openCodeHashes.has(entryHash)) {
+						continue;
+					}
+
+					this.openCodeHashes.add(entryHash);
+
+					// Convert to LoadedUsageEntry format and add
 					this.allEntries.push({
 						source: 'opencode',
 						timestamp: entry.timestamp,
@@ -208,12 +217,13 @@ export class LiveMonitor implements Disposable {
 	}
 
 	/**
-	 * Clears all cached data to force a full reload
+	 * Clears file timestamp cache to allow re-checking for updates
+	 * Note: Does NOT clear processed entries to maintain consistency
 	 */
 	clearCache(): void {
+		// Only clear file timestamps to allow checking for new lines in files
+		// Do NOT clear processedHashes or allEntries to maintain data consistency
 		this.lastFileTimestamps.clear();
-		this.processedHashes.clear();
-		this.allEntries = [];
 	}
 }
 
@@ -228,7 +238,7 @@ if (import.meta.vitest != null) {
 			const recentTimestamp = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
 
 			const fixture = await createFixture({
-				'projects/test-project/session1/usage.jsonl': `${JSON.stringify({
+				'projects/test-project/session1.jsonl': `${JSON.stringify({
 					timestamp: recentTimestamp.toISOString(),
 					message: {
 						model: 'claude-sonnet-4-20250514',
