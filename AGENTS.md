@@ -16,6 +16,24 @@ bun run test:statusline        # Run statusline test with sample data
 ./testManual.sh --daily --weekly  # Test specific commands
 ```
 
+## Development Workflow
+
+### Before Making Changes
+1. **Run tests**: `bun test` to ensure current state is clean
+2. **Understand scope**: Identify which modules will be affected
+
+### After Editing Source Files
+1. **Update tests first**: Modify tests if source APIs have changed
+2. **Run unit tests**: `bun test` to verify functionality
+3. **Run manual CLI tests**: `./testManual.sh --breakdown` to test end-to-end behavior
+4. **Verify all pass**: Ensure 100% test pass rate before committing
+
+### Critical Testing Points
+- **API Changes**: Update test mocks and expectations when function signatures change
+- **New Features**: Add corresponding tests for new functionality
+- **Bug Fixes**: Add regression tests to prevent future issues
+- **Refactoring**: Ensure tests still validate the same behavior
+
 ## CLI Commands Architecture
 
 The CLI is built using the `gunshi` framework with the following command structure:
@@ -74,29 +92,35 @@ All commands support these shared options:
 
 ## Testing Strategy
 
-Uses **traditional test files** in `test/` directory with Vitest:
+Uses **comprehensive test suite** in `test/` directory with Vitest - **78 tests** across **18 files** with **100% pass rate**:
 
 ```bash
 # Test commands
-bun test                                    # All tests
+bun test                                    # All tests (78 tests, ~1s runtime)
 bun test test/_live-monitor.test.ts        # Specific test file
 TZ=UTC bun test                            # Timezone-consistent tests
 bun test --watch                           # Watch mode
 ```
 
-### Test Structure
-- Tests are in dedicated `.test.ts` files in `test/` directory
-- Uses `fs-fixture` for file system mocking
+### Test Structure & Coverage
+- **18 test files** covering all major modules in `test/` directory
+- **262 assertions** with comprehensive edge case coverage
+- Uses `fs-fixture` for file system mocking and `@praha/byethrow` Result patterns
 - Tests with current Claude 4 models (`claude-opus-4-20250514`, `claude-sonnet-4-20250514`)
-- Imports functions directly from source files for testing
+- **Environment-isolated**: Tests don't depend on actual user data
 
-### Key Test Areas
-- Data loading and JSONL parsing
-- Cost calculations and pricing
-- Project path encoding/decoding
-- Session block identification
-- Live monitoring and burn rate calculations
-- Token aggregation utilities
+### Key Test Categories
+1. **Core Data Processing**: Data loading, cost calculations, token utilities, session blocks
+2. **Integration & External Services**: Pricing API, OpenCode integration, debug utilities  
+3. **CLI & Commands**: Command structure validation, shared arguments
+4. **Utilities & Formatting**: Responsive tables, terminal rendering, project names
+5. **Live Monitoring**: Real-time tracking, burn rate calculations, cache management
+
+### Test Quality Standards
+- **Fast**: Complete suite runs in under 1 second
+- **Reliable**: No flaky tests, consistent results
+- **Type-Safe**: Proper TypeScript interfaces and branded types
+- **Maintainable**: Clear test structure with good documentation (see `test/README.md`)
 
 ## Code Style Guidelines
 
@@ -155,4 +179,20 @@ export LOG_LEVEL=0                             # Logging level (0=silent, 5=trac
 - Cross-platform usage totals
 - Timezone-aware date calculations
 
-When working with this codebase, prioritize understanding the data flow from JSONL parsing through cost calculation to formatted output, and maintain the existing patterns for type safety and error handling.
+## Development Best Practices
+
+### Code Quality Workflow
+1. **Before editing**: Run `bun test` to ensure clean starting state
+2. **During development**: Update tests when changing APIs or adding features
+3. **After changes**: 
+   - Run `bun test` for unit test validation
+   - Run `./testManual.sh --breakdown` for CLI integration testing
+   - Ensure 100% test pass rate before committing
+
+### Testing Requirements
+- **Update tests first**: When changing source file APIs, update corresponding tests
+- **Add regression tests**: For bug fixes, add tests that would have caught the issue
+- **Maintain coverage**: New features should include comprehensive test coverage
+- **Verify integration**: Use `./testManual.sh` to test actual CLI behavior
+
+When working with this codebase, prioritize understanding the data flow from JSONL parsing through cost calculation to formatted output, maintain the existing patterns for type safety and error handling, and always ensure the test suite remains at 100% pass rate.

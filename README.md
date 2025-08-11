@@ -291,12 +291,12 @@ bun run release
 
 ### Testing
 
-This project uses **traditional test files** with Vitest, where tests are organized in a dedicated `test/` directory alongside the source code.
+This project uses a **comprehensive test suite** with Vitest - **78 tests** across **18 files** with **100% pass rate**.
 
-#### Running Tests
+#### Quick Start
 
 ```bash
-# Run all tests
+# Run all tests (fast - completes in ~1 second)
 bun test
 
 # Run tests with timezone consistency
@@ -305,143 +305,53 @@ TZ=UTC bun test
 # Run specific test file
 bun test test/_opencode-loader.test.ts
 
-# Run specific test file (statusline test)
-bun run test:statusline
-
-# Check test coverage across source files
-bun test --coverage
-
 # Run tests in watch mode during development
 bun test --watch
+
+# Manual CLI integration testing
+./testManual.sh --breakdown
 ```
 
-#### Test Structure
+#### Test Suite Overview
 
-Tests are organized in the `test/` directory with a clear naming convention:
+- **78 tests** across **18 test files**
+- **262 assertions** with comprehensive edge case coverage
+- **100% pass rate** - reliable and maintainable
+- **Environment-isolated** - no dependencies on actual user data
+- **Fast execution** - complete suite runs in under 1 second
 
-```
-test/
-├── _live-monitor.test.ts      # LiveMonitor class tests
-├── _opencode-loader.test.ts   # Project path encoding/decoding tests
-├── _token-utils.test.ts       # Token calculation utilities tests
-├── _jq-processor.test.ts      # JSON processing with jq tests
-├── calculate-cost.test.ts     # Cost calculation tests
-├── data-loader.test.ts        # JSONL parsing and data loading tests
-├── pricing-fetcher.test.ts    # Model pricing and LiteLLM integration tests
-├── debug.test.ts              # Debug utilities and mismatch detection tests
-└── statusline-test.json       # Test data for statusline functionality
-```
+#### Test Categories
 
-#### Writing Tests
+1. **Core Data Processing** - Data loading, cost calculations, token utilities
+2. **Integration & External Services** - Pricing API, OpenCode integration
+3. **CLI & Commands** - Command structure validation, shared arguments
+4. **Utilities & Formatting** - Terminal rendering, responsive tables
+5. **Live Monitoring** - Real-time tracking, burn rate calculations
 
-Tests follow standard Vitest patterns with imports from source files:
+#### Development Workflow
 
-```typescript
-// Example from test/_opencode-loader.test.ts
-import { describe, it, expect } from 'vitest';
-import { encodeProjectPath, decodeProjectPath } from '../src/_opencode-loader.ts';
+**Before making changes:**
+1. Run `bun test` to ensure clean starting state
 
-describe('Project path encoding/decoding', () => {
-    it('should encode and decode paths with dashes correctly', () => {
-        const originalPath = '/Users/vatsal/my-project';
-        const encoded = encodeProjectPath(originalPath);
-        const decoded = decodeProjectPath(encoded);
-        expect(decoded).toBe(originalPath);
-    });
-    
-    it('should fallback to legacy dash replacement', () => {
-        const legacyEncoded = 'Users-vatsal-my-project';
-        const decoded = decodeProjectPath(legacyEncoded);
-        expect(decoded).toBe('/Users/vatsal/my/project');
-    });
-    
-    it('should handle complex paths with special characters', () => {
-        const originalPath = '/Users/vatsal/my-project (2024) #1';
-        const encoded = encodeProjectPath(originalPath);
-        const decoded = decodeProjectPath(encoded);
-        expect(decoded).toBe(originalPath);
-    });
-});
-```
+**After editing source files:**
+1. Update tests first if APIs changed
+2. Run `bun test` for unit test validation
+3. Run `./testManual.sh --breakdown` for CLI integration testing
+4. Ensure 100% test pass rate before committing
 
-#### Testing Guidelines
+#### Detailed Documentation
 
-1. **Traditional Test Structure**:
-   - Tests are in dedicated `.test.ts` files in the `test/` directory
-   - Clear separation between source code and tests
-   - Easy to navigate and maintain
-   - Standard testing patterns familiar to most developers
+For comprehensive testing information, patterns, and guidelines, see:
 
-2. **Test Coverage Areas**:
-   - **Data Processing**: JSONL parsing, token aggregation (`data-loader.test.ts`)
-   - **Cost Calculations**: Model pricing, token cost computation (`calculate-cost.test.ts`)
-   - **Path Encoding**: URL encoding/decoding for project paths (`_opencode-loader.test.ts`)
-   - **Date Handling**: Timezone conversions, date formatting (`_utils.test.ts`)
-   - **Live Monitoring**: Real-time dashboard updates (`_live-monitor.test.ts`)
-   - **Token Utilities**: Token counting and aggregation (`_token-utils.test.ts`)
-   - **JSON Processing**: jq command processing (`_jq-processor.test.ts`)
+📖 **[test/README.md](test/README.md)** - Complete test suite documentation
 
-3. **Mock Data Requirements**:
-   - Use `fs-fixture` for creating temporary test directories
-   - Mock Claude/OpenCode data directories for testing
-   - Use current Claude 4 models (`claude-opus-4-20250514`, `claude-sonnet-4-20250514`) in test data
-   - Test with realistic JSONL data structures
-
-4. **Best Practices**:
-   - Test both happy paths and edge cases
-   - Include backward compatibility tests (legacy dash encoding)
-   - Verify error handling and fallback mechanisms
-   - Test with realistic data structures matching actual Claude/OpenCode output
-   - Ensure tests work with UTC timezone (`TZ=UTC`)
-   - Import only the functions/classes being tested to maintain clean dependencies
-
-#### Test Environment
-
-- **Runtime**: Vitest with Bun for fast execution
-- **Configuration**: `vitest.config.ts` configured for traditional test files
-- **Globals**: Vitest globals (`describe`, `it`, `expect`) available via imports
-- **Fixtures**: `fs-fixture` for file system mocking
-- **Timezone**: Tests run with `TZ=UTC` for consistency
-- **Models**: Tests use current Claude 4 models for LiteLLM compatibility
-- **Dependencies**: All test dependencies are in `devDependencies`
-
-#### Testing New Features
-
-When adding new features:
-
-1. **Create corresponding test file** in `test/` directory with `.test.ts` extension
-2. **Import necessary functions** from source files for testing
-3. **Test edge cases** including malformed input data
-4. **Verify backward compatibility** with existing data formats
-5. **Test error handling** and graceful degradation
-6. **Include performance tests** for data processing functions
-7. **Mock external dependencies** (file system, network calls)
-8. **Export functions from source** if they need to be tested but aren't already exported
-
-#### Debugging Tests
-
-```bash
-# Run tests with debug output
-LOG_LEVEL=4 bun test
-
-# Run single test file with verbose output
-bun test --verbose test/_opencode-loader.test.ts
-
-# Debug specific test patterns
-bun test --grep "encoding"
-
-# Run tests for specific functionality
-bun test test/_live-monitor.test.ts
-bun test test/_token-utils.test.ts
-```
-
-#### Migration Status
-
-The project is currently migrating from in-source tests to traditional test files:
-
-- ✅ **Completed**: `_live-monitor.test.ts`, `_opencode-loader.test.ts`, `_token-utils.test.ts`, `_jq-processor.test.ts`
-- 🔄 **In Progress**: Remaining source files with in-source tests are being migrated
-- 📊 **Current Status**: 21+ tests passing in traditional test structure
+This includes:
+- Detailed test file organization and structure
+- Testing patterns and best practices
+- Mock data creation and fixtures
+- Environment isolation techniques
+- Common test scenarios and examples
+- Future improvement suggestions
 
 ### Project Structure
 ```
