@@ -144,3 +144,18 @@ export const BURN_RATE_THRESHOLDS = {
  * Days of the week for weekly aggregation
  */
 export const WEEK_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+
+/**
+ * Default OpenCode data directory path relative to home
+ */
+export const DEFAULT_OPENCODE_DATA_PATH = '.local/share/opencode';
+
+/**
+ * Environment variable name for OpenCode data directory
+ */
+export const OPENCODE_DATA_DIR_ENV = 'OPENCODE_DATA_DIR';
+
+/**
+ * OpenCode projects directory name (note: singular in OpenCode)
+ */
+export const OPENCODE_PROJECTS_DIR_NAME = 'project';

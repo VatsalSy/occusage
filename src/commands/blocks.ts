@@ -91,6 +91,27 @@ function formatModels(models: string[]): string {
 }
 
 /**
+ * Formats the data sources for display with icons
+ * @param sources - Array of data sources
+ * @returns Formatted source string with icons
+ */
+function formatSources(sources: Array<'claude' | 'opencode'>): string {
+	if (sources == null || sources.length === 0) {
+		return '-';
+	}
+	const icons = sources.map((s) => {
+		if (s === 'claude') {
+			return pc.blue('[C]');
+		}
+		if (s === 'opencode') {
+			return pc.green('[O]');
+		}
+		return '';
+	});
+	return icons.join(' ');
+}
+
+/**
  * Parses token limit argument, supporting 'max' keyword
  * @param value - Token limit string value
  * @param maxFromAll - Maximum token count found in all blocks
@@ -264,7 +285,7 @@ export const blocksCommand = define({
 						id: block.id,
 						startTime: block.startTime.toISOString(),
 						endTime: block.endTime.toISOString(),
-						actualEndTime: block.actualEndTime?.toISOString() ?? null,
+						actualEndTime: block.actualEndTime?.toISOString() ?? undefined,
 						isActive: block.isActive,
 						isGap: block.isGap ?? false,
 						entries: block.entries.length,
@@ -272,6 +293,7 @@ export const blocksCommand = define({
 						totalTokens: getTotalTokens(block.tokenCounts),
 						costUSD: block.costUSD,
 						models: block.models,
+						sources: block.sources,
 						burnRate,
 						projection,
 						tokenLimitStatus: projection != null && ctx.values.tokenLimit != null
@@ -377,8 +399,8 @@ export const blocksCommand = define({
 				// Calculate token limit if "max" is specified
 				const actualTokenLimit = parseTokenLimit(ctx.values.tokenLimit, maxTokensFromAll);
 
-				const tableHeaders = ['Block Start', 'Duration/Status', 'Models', 'Tokens'];
-				const tableAligns: ('left' | 'right' | 'center')[] = ['left', 'left', 'left', 'right'];
+				const tableHeaders = ['Source', 'Block Start', 'Duration/Status', 'Models', 'Tokens'];
+				const tableAligns: ('left' | 'right' | 'center')[] = ['center', 'left', 'left', 'left', 'right'];
 
 				// Add % column if token limit is set
 				if (actualTokenLimit != null && actualTokenLimit > 0) {
@@ -420,6 +442,7 @@ export const blocksCommand = define({
 						const status = block.isActive ? pc.green('ACTIVE') : '';
 
 						const row = [
+							formatSources(block.sources),
 							formatBlockTime(block, useCompactFormat, ctx.values.locale),
 							status,
 							formatModels(block.models),
@@ -472,6 +495,7 @@ export const blocksCommand = define({
 									: projectedTokens;
 
 								const projectedRow = [
+									'',
 									{ content: pc.gray('(assuming current burn rate)'), hAlign: 'right' as const },
 									pc.yellow('PROJECTED'),
 									'',

@@ -11,6 +11,7 @@
 import type { LoadedUsageEntry, SessionBlock } from './_session-blocks.ts';
 import type { CostMode, SortOrder } from './_types.ts';
 import { readFile } from 'node:fs/promises';
+import { loadOpenCodeData } from './_opencode-loader.ts';
 import { identifySessionBlocks } from './_session-blocks.ts';
 import {
 	calculateCostForEntry,
@@ -42,6 +43,7 @@ export class LiveMonitor implements Disposable {
 	private lastFileTimestamps = new Map<string, number>();
 	private processedHashes = new Set<string>();
 	private allEntries: LoadedUsageEntry[] = [];
+	private lastOpenCodeLoadTime = 0;
 
 	constructor(config: LiveMonitorConfig) {
 		this.config = config;
@@ -127,8 +129,15 @@ export class LiveMonitor implements Disposable {
 
 						const usageLimitResetTime = getUsageLimitResetTime(data);
 
+						// Skip entries with synthetic model or unknown model
+						const model = data.message.model ?? 'unknown';
+						if (model === '<synthetic>' || model === 'unknown') {
+							continue;
+						}
+
 						// Add entry
 						this.allEntries.push({
+							source: 'claude',
 							timestamp: new Date(data.timestamp),
 							usage: {
 								inputTokens: data.message.usage.input_tokens ?? 0,
@@ -137,7 +146,7 @@ export class LiveMonitor implements Disposable {
 								cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
 							},
 							costUSD,
-							model: data.message.model ?? '<synthetic>',
+							model,
 							version: data.version,
 							usageLimitResetTime: usageLimitResetTime ?? undefined,
 						});
@@ -146,6 +155,40 @@ export class LiveMonitor implements Disposable {
 						// Skip malformed lines
 					}
 				}
+			}
+		}
+
+		// Load OpenCode data periodically (every 10 seconds to avoid excessive loading)
+		const now = Date.now();
+		if (now - this.lastOpenCodeLoadTime > 10000) {
+			try {
+				const openCodeEntries = loadOpenCodeData();
+
+				// Filter out existing OpenCode entries and add new ones
+				this.allEntries = this.allEntries.filter(e => e.source !== 'opencode');
+
+				for (const entry of openCodeEntries) {
+					// Convert to LoadedUsageEntry format
+					this.allEntries.push({
+						source: 'opencode',
+						timestamp: entry.timestamp,
+						usage: {
+							inputTokens: entry.tokens.input,
+							outputTokens: entry.tokens.output,
+							cacheCreationInputTokens: entry.tokens.cache?.write ?? 0,
+							cacheReadInputTokens: entry.tokens.cache?.read ?? 0,
+						},
+						costUSD: entry.cost ?? 0,
+						model: entry.model,
+						version: undefined,
+						usageLimitResetTime: undefined,
+					});
+				}
+
+				this.lastOpenCodeLoadTime = now;
+			}
+			catch {
+				// Silently ignore OpenCode loading errors
 			}
 		}
 

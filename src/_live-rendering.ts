@@ -435,7 +435,19 @@ export function renderLiveDisplay(terminal: TerminalManager, block: SessionBlock
 	// Models section
 	if (block.models.length > 0) {
 		terminal.write(`${marginStr}├${'─'.repeat(boxWidth - 2)}┤\n`);
-		const modelsLine = `${drawEmoji('⚙️')}  Models: ${formatModelsDisplay(block.models)}`;
+
+		// Format sources with colors
+		const sourcesDisplay = block.sources?.map((s) => {
+			if (s === 'claude') {
+				return pc.blue('[C]');
+			}
+			if (s === 'opencode') {
+				return pc.green('[O]');
+			}
+			return '';
+		}).join(' ') ?? '';
+
+		const modelsLine = `${drawEmoji('⚙️')}  Models: ${formatModelsDisplay(block.models)}${sourcesDisplay.length > 0 ? `  ${sourcesDisplay}` : ''}`;
 		const modelsLinePadded = modelsLine + ' '.repeat(Math.max(0, boxWidth - 3 - stringWidth(modelsLine)));
 		terminal.write(`${marginStr}│ ${modelsLinePadded}│\n`);
 	}

@@ -33,6 +33,7 @@ import { isDirectorySync } from 'path-type';
 import { glob } from 'tinyglobby';
 import { z } from 'zod';
 import { CLAUDE_CONFIG_DIR_ENV, CLAUDE_PROJECTS_DIR_NAME, DEFAULT_CLAUDE_CODE_PATH, DEFAULT_CLAUDE_CONFIG_PATH, USAGE_DATA_GLOB_PATTERN, USER_HOME_DIR } from './_consts.ts';
+import { loadOpenCodeData } from './_opencode-loader.ts';
 import {
 	identifySessionBlocks,
 } from './_session-blocks.ts';
@@ -64,6 +65,142 @@ import { logger } from './logger.ts';
 import {
 	PricingFetcher,
 } from './pricing-fetcher.ts';
+
+/**
+ * Common entry format for both Claude and OpenCode data
+ */
+type UnifiedUsageEntry = {
+	source: 'claude' | 'opencode';
+	timestamp: string;
+	projectPath: string;
+	sessionId: string;
+	model: string;
+	usage: {
+		input_tokens: number;
+		output_tokens: number;
+		cache_creation_input_tokens: number;
+		cache_read_input_tokens: number;
+	};
+	costUSD?: number;
+	version?: string;
+};
+
+/**
+ * Loads unified usage data from both Claude and OpenCode sources
+ */
+// eslint-disable-next-line ts/no-unused-vars
+async function _loadUnifiedUsageData(
+	options?: LoadOptions,
+): Promise<UnifiedUsageEntry[]> {
+	const sources = options?.sources ?? ['claude', 'opencode'];
+	const allEntries: UnifiedUsageEntry[] = [];
+
+	// Load Claude data if included
+	if (sources.includes('claude')) {
+		const claudePaths = toArray(options?.claudePath ?? getClaudePaths());
+		const allFiles = await globUsageFiles(claudePaths);
+		const fileList = allFiles.map(f => f.file);
+
+		if (fileList.length > 0) {
+			// Filter by project if specified
+			const projectFilteredFiles = filterByProject(
+				fileList,
+				filePath => extractProjectFromPath(filePath),
+				options?.project,
+			);
+
+			// Sort files by timestamp
+			const sortedFiles = await sortFilesByTimestamp(projectFilteredFiles);
+
+			// Track processed message+request combinations for deduplication
+			const processedHashes = new Set<string>();
+
+			for (const file of sortedFiles) {
+				const content = await readFile(file, 'utf-8');
+				const lines = content
+					.trim()
+					.split('\n')
+					.filter(line => line.length > 0);
+
+				const projectPath = extractProjectFromPath(file);
+				const sessionId = path.basename(file, '.jsonl');
+
+				for (const line of lines) {
+					try {
+						const parsed = JSON.parse(line) as unknown;
+						// eslint-disable-next-line ts/no-use-before-define
+						const result = usageDataSchema.safeParse(parsed);
+						if (!result.success) {
+							continue;
+						}
+						const data = result.data;
+
+						// Check for duplicate
+						const uniqueHash = createUniqueHash(data);
+						if (isDuplicateEntry(uniqueHash, processedHashes)) {
+							continue;
+						}
+						markAsProcessed(uniqueHash, processedHashes);
+
+						// Skip entries with synthetic model or unknown model
+						const model = data.message.model ?? 'unknown';
+						if (model === '<synthetic>' || model === 'unknown') {
+							continue;
+						}
+
+						allEntries.push({
+							source: 'claude',
+							timestamp: data.timestamp,
+							projectPath,
+							sessionId,
+							model,
+							usage: {
+								input_tokens: data.message.usage.input_tokens,
+								output_tokens: data.message.usage.output_tokens,
+								cache_creation_input_tokens: data.message.usage.cache_creation_input_tokens ?? 0,
+								cache_read_input_tokens: data.message.usage.cache_read_input_tokens ?? 0,
+							},
+							costUSD: data.costUSD,
+							version: data.version,
+						});
+					}
+					catch {
+						// Skip invalid JSON lines
+					}
+				}
+			}
+		}
+	}
+
+	// Load OpenCode data if included
+	if (sources.includes('opencode')) {
+		const openCodeEntries = loadOpenCodeData(options?.openCodePath);
+
+		for (const entry of openCodeEntries) {
+			// Filter by project if specified
+			if (options?.project != null && !entry.projectPath.includes(options.project)) {
+				continue;
+			}
+
+			allEntries.push({
+				source: 'opencode',
+				timestamp: entry.timestamp.toISOString(),
+				projectPath: entry.projectPath,
+				sessionId: entry.sessionId,
+				model: entry.model,
+				usage: {
+					input_tokens: entry.tokens.input,
+					output_tokens: entry.tokens.output,
+					cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
+					cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+				},
+				costUSD: entry.cost,
+			});
+		}
+	}
+
+	return allEntries;
+}
 
 /**
  * Get Claude data directories to search for usage data
@@ -795,6 +932,7 @@ type DayOfWeek = IntRange<0, typeof WEEK_DAYS['length']>; // 0 = Sunday, 1 = Mon
  */
 export type LoadOptions = {
 	claudePath?: string; // Custom path to Claude data directory
+	openCodePath?: string; // Custom path to OpenCode data directory (for testing)
 	mode?: CostMode; // Cost calculation mode
 	order?: SortOrder; // Sort order for dates
 	offline?: boolean; // Use offline mode for pricing
@@ -804,6 +942,7 @@ export type LoadOptions = {
 	startOfWeek?: WeekDay; // Start of week for weekly aggregation
 	timezone?: string; // Timezone for date grouping (e.g., 'UTC', 'America/New_York'). Defaults to system timezone
 	locale?: string; // Locale for date/time formatting (e.g., 'en-US', 'ja-JP'). Defaults to 'en-US'
+	sources?: Array<'claude' | 'opencode'>; // Filter by data sources (defaults to both)
 } & DateFilter;
 
 /**
@@ -1344,98 +1483,145 @@ export async function loadBucketUsageData(
 export async function loadSessionBlockData(
 	options?: LoadOptions,
 ): Promise<SessionBlock[]> {
-	// Get all Claude paths or use the specific one from options
-	const claudePaths = toArray(options?.claudePath ?? getClaudePaths());
-
-	// Collect files from all paths
-	const allFiles: string[] = [];
-	for (const claudePath of claudePaths) {
-		const claudeDir = path.join(claudePath, CLAUDE_PROJECTS_DIR_NAME);
-		const files = await glob([USAGE_DATA_GLOB_PATTERN], {
-			cwd: claudeDir,
-			absolute: true,
-		});
-		allFiles.push(...files);
-	}
-
-	if (allFiles.length === 0) {
-		return [];
-	}
-
-	// Filter by project if specified
-	const blocksFilteredFiles = filterByProject(
-		allFiles,
-		filePath => extractProjectFromPath(filePath),
-		options?.project,
-	);
-
-	// Sort files by timestamp to ensure chronological processing
-	const sortedFiles = await sortFilesByTimestamp(blocksFilteredFiles);
-
-	// Fetch pricing data for cost calculation only when needed
-	const mode = options?.mode ?? 'auto';
-
-	// Use PricingFetcher with using statement for automatic cleanup
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
-
-	// Track processed message+request combinations for deduplication
-	const processedHashes = new Set<string>();
-
-	// Collect all valid data entries first
+	// Determine which sources to load (default to both)
+	const sources = options?.sources ?? ['claude', 'opencode'];
 	const allEntries: LoadedUsageEntry[] = [];
 
-	for (const file of sortedFiles) {
-		const content = await readFile(file, 'utf-8');
-		const lines = content
-			.trim()
-			.split('\n')
-			.filter(line => line.length > 0);
+	// Load Claude data if included
+	if (sources.includes('claude')) {
+		// Get all Claude paths or use the specific one from options
+		const claudePaths = toArray(options?.claudePath ?? getClaudePaths());
 
-		for (const line of lines) {
-			try {
-				const parsed = JSON.parse(line) as unknown;
-				const result = usageDataSchema.safeParse(parsed);
-				if (!result.success) {
-					continue;
+		// Collect files from all paths
+		const allFiles: string[] = [];
+		for (const claudePath of claudePaths) {
+			const claudeDir = path.join(claudePath, CLAUDE_PROJECTS_DIR_NAME);
+			const files = await glob([USAGE_DATA_GLOB_PATTERN], {
+				cwd: claudeDir,
+				absolute: true,
+			});
+			allFiles.push(...files);
+		}
+
+		if (allFiles.length > 0) {
+			// Filter by project if specified
+			const blocksFilteredFiles = filterByProject(
+				allFiles,
+				filePath => extractProjectFromPath(filePath),
+				options?.project,
+			);
+
+			// Sort files by timestamp to ensure chronological processing
+			const sortedFiles = await sortFilesByTimestamp(blocksFilteredFiles);
+
+			// Fetch pricing data for cost calculation only when needed
+			const mode = options?.mode ?? 'auto';
+
+			// Use PricingFetcher with using statement for automatic cleanup
+			using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+
+			// Track processed message+request combinations for deduplication
+			const processedHashes = new Set<string>();
+
+			for (const file of sortedFiles) {
+				const content = await readFile(file, 'utf-8');
+				const lines = content
+					.trim()
+					.split('\n')
+					.filter(line => line.length > 0);
+
+				for (const line of lines) {
+					try {
+						const parsed = JSON.parse(line) as unknown;
+
+						const result = usageDataSchema.safeParse(parsed);
+						if (!result.success) {
+							continue;
+						}
+						const data = result.data;
+
+						// Check for duplicate message + request ID combination
+						const uniqueHash = createUniqueHash(data);
+						if (isDuplicateEntry(uniqueHash, processedHashes)) {
+							// Skip duplicate message
+							continue;
+						}
+
+						// Mark this combination as processed
+						markAsProcessed(uniqueHash, processedHashes);
+
+						const cost = fetcher != null
+							? await calculateCostForEntry(data, mode, fetcher)
+							: data.costUSD ?? 0;
+
+						// Skip entries with synthetic model or unknown model
+						const model = data.message.model ?? 'unknown';
+						if (model === '<synthetic>' || model === 'unknown') {
+							continue;
+						}
+
+						// Get Claude Code usage limit expiration date
+						const usageLimitResetTime = getUsageLimitResetTime(data);
+
+						allEntries.push({
+							source: 'claude',
+							timestamp: new Date(data.timestamp),
+							usage: {
+								inputTokens: data.message.usage.input_tokens,
+								outputTokens: data.message.usage.output_tokens,
+								cacheCreationInputTokens: data.message.usage.cache_creation_input_tokens ?? 0,
+								cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
+							},
+							costUSD: cost,
+							model,
+							version: data.version,
+							usageLimitResetTime: usageLimitResetTime ?? undefined,
+						});
+					}
+					catch (error) {
+						// Skip invalid JSON lines but log for debugging purposes
+						logger.debug(`Skipping invalid JSON line in 5-hour blocks: ${error instanceof Error ? error.message : String(error)}`);
+					}
 				}
-				const data = result.data;
-
-				// Check for duplicate message + request ID combination
-				const uniqueHash = createUniqueHash(data);
-				if (isDuplicateEntry(uniqueHash, processedHashes)) {
-				// Skip duplicate message
-					continue;
-				}
-
-				// Mark this combination as processed
-				markAsProcessed(uniqueHash, processedHashes);
-
-				const cost = fetcher != null
-					? await calculateCostForEntry(data, mode, fetcher)
-					: data.costUSD ?? 0;
-
-				// Get Claude Code usage limit expiration date
-				const usageLimitResetTime = getUsageLimitResetTime(data);
-
-				allEntries.push({
-					timestamp: new Date(data.timestamp),
-					usage: {
-						inputTokens: data.message.usage.input_tokens,
-						outputTokens: data.message.usage.output_tokens,
-						cacheCreationInputTokens: data.message.usage.cache_creation_input_tokens ?? 0,
-						cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
-					},
-					costUSD: cost,
-					model: data.message.model ?? 'unknown',
-					version: data.version,
-					usageLimitResetTime: usageLimitResetTime ?? undefined,
-				});
-			}
-			catch (error) {
-				// Skip invalid JSON lines but log for debugging purposes
-				logger.debug(`Skipping invalid JSON line in 5-hour blocks: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
+	}
+
+	// Load OpenCode data if included
+	if (sources.includes('opencode')) {
+		try {
+			const openCodeEntries = loadOpenCodeData(options?.openCodePath);
+
+			// Convert OpenCode entries to LoadedUsageEntry format
+			for (const entry of openCodeEntries) {
+				// Filter by project if specified
+				if (options?.project != null && !entry.projectPath.includes(options.project)) {
+					continue;
+				}
+
+				allEntries.push({
+					source: 'opencode',
+					timestamp: entry.timestamp,
+					usage: {
+						inputTokens: entry.tokens.input,
+						outputTokens: entry.tokens.output,
+						cacheCreationInputTokens: entry.tokens.cache?.write ?? 0,
+						cacheReadInputTokens: entry.tokens.cache?.read ?? 0,
+					},
+					costUSD: entry.cost ?? null,
+					model: entry.model,
+				});
+			}
+		}
+		catch (error) {
+			// Silently skip if OpenCode directory doesn't exist
+			logger.debug('OpenCode data not available:', error);
+		}
+	}
+
+	// Return empty if no entries from any source
+	if (allEntries.length === 0) {
+		return [];
 	}
 
 	// Identify session blocks
@@ -3799,7 +3985,10 @@ invalid json line
 	describe('loadSessionBlockData', () => {
 		it('returns empty array when no files found', async () => {
 			await using fixture = await createFixture({ projects: {} });
-			const result = await loadSessionBlockData({ claudePath: fixture.path });
+			const result = await loadSessionBlockData({
+				claudePath: fixture.path,
+				openCodePath: fixture.path, // Pass test path for OpenCode too
+			});
 			expect(result).toEqual([]);
 		});
 
@@ -3861,7 +4050,7 @@ invalid json line
 				},
 			});
 
-			const result = await loadSessionBlockData({ claudePath: fixture.path });
+			const result = await loadSessionBlockData({ claudePath: fixture.path, openCodePath: fixture.path });
 			expect(result.length).toBeGreaterThan(0); // Should have blocks
 			expect(result[0]?.entries).toHaveLength(1); // First block has one entry
 			// Total entries across all blocks should be 3
@@ -3898,6 +4087,7 @@ invalid json line
 			// Test display mode
 			const displayResult = await loadSessionBlockData({
 				claudePath: fixture.path,
+				openCodePath: fixture.path,
 				mode: 'display',
 			});
 			expect(displayResult).toHaveLength(1);
@@ -3906,6 +4096,7 @@ invalid json line
 			// Test calculate mode
 			const calculateResult = await loadSessionBlockData({
 				claudePath: fixture.path,
+				openCodePath: fixture.path,
 				mode: 'calculate',
 			});
 			expect(calculateResult).toHaveLength(1);
@@ -3964,6 +4155,7 @@ invalid json line
 			// Test filtering with since parameter
 			const sinceResult = await loadSessionBlockData({
 				claudePath: fixture.path,
+				openCodePath: fixture.path,
 				since: '20240102',
 			});
 			expect(sinceResult.length).toBeGreaterThan(0);
@@ -3972,6 +4164,7 @@ invalid json line
 			// Test filtering with until parameter
 			const untilResult = await loadSessionBlockData({
 				claudePath: fixture.path,
+				openCodePath: fixture.path,
 				until: '20240102',
 			});
 			expect(untilResult.length).toBeGreaterThan(0);
@@ -4022,6 +4215,7 @@ invalid json line
 			// Test ascending order
 			const ascResult = await loadSessionBlockData({
 				claudePath: fixture.path,
+				openCodePath: fixture.path,
 				order: 'asc',
 			});
 			expect(ascResult[0]?.startTime).toEqual(date1);
@@ -4029,6 +4223,7 @@ invalid json line
 			// Test descending order
 			const descResult = await loadSessionBlockData({
 				claudePath: fixture.path,
+				openCodePath: fixture.path,
 				order: 'desc',
 			});
 			expect(descResult[0]?.startTime).toEqual(date2);
@@ -4071,7 +4266,7 @@ invalid json line
 				},
 			});
 
-			const result = await loadSessionBlockData({ claudePath: fixture.path });
+			const result = await loadSessionBlockData({ claudePath: fixture.path, openCodePath: fixture.path });
 			expect(result).toHaveLength(1);
 			expect(result[0]?.entries).toHaveLength(1); // Only one entry after deduplication
 		});
@@ -4103,7 +4298,7 @@ invalid json line
 				},
 			});
 
-			const result = await loadSessionBlockData({ claudePath: fixture.path });
+			const result = await loadSessionBlockData({ claudePath: fixture.path, openCodePath: fixture.path });
 			expect(result).toHaveLength(1);
 			expect(result[0]?.entries).toHaveLength(1);
 		});

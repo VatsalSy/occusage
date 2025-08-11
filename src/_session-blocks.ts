@@ -22,6 +22,7 @@ function floorToHour(timestamp: Date): Date {
  * Represents a single usage data entry loaded from JSONL files
  */
 export type LoadedUsageEntry = {
+	source: 'claude' | 'opencode';
 	timestamp: Date;
 	usage: {
 		inputTokens: number;
@@ -59,6 +60,7 @@ export type SessionBlock = {
 	tokenCounts: TokenCounts;
 	costUSD: number;
 	models: string[];
+	sources: Array<'claude' | 'opencode'>; // Track which sources contributed to this block
 	usageLimitResetTime?: Date; // Claude API usage limit reset time
 };
 
@@ -177,6 +179,7 @@ function createBlock(startTime: Date, entries: LoadedUsageEntry[], now: Date, se
 
 	let costUSD = 0;
 	const models: string[] = [];
+	const sources: Array<'claude' | 'opencode'> = [];
 	let usageLimitResetTime: Date | undefined;
 
 	for (const entry of entries) {
@@ -187,6 +190,7 @@ function createBlock(startTime: Date, entries: LoadedUsageEntry[], now: Date, se
 		costUSD += entry.costUSD ?? 0;
 		usageLimitResetTime = entry.usageLimitResetTime ?? usageLimitResetTime;
 		models.push(entry.model);
+		sources.push(entry.source);
 	}
 
 	return {
@@ -199,6 +203,7 @@ function createBlock(startTime: Date, entries: LoadedUsageEntry[], now: Date, se
 		tokenCounts,
 		costUSD,
 		models: uniq(models),
+		sources: uniq(sources),
 		usageLimitResetTime,
 	};
 }
@@ -235,6 +240,7 @@ function createGapBlock(lastActivityTime: Date, nextActivityTime: Date, sessionD
 		},
 		costUSD: 0,
 		models: [],
+		sources: [],
 	};
 }
 
@@ -339,6 +345,7 @@ if (import.meta.vitest != null) {
 		costUSD = 0.01,
 	): LoadedUsageEntry {
 		return {
+			source: 'claude',
 			timestamp,
 			usage: {
 				inputTokens,
@@ -462,6 +469,7 @@ if (import.meta.vitest != null) {
 		it('handles cache tokens correctly', () => {
 			const baseTime = new Date('2024-01-01T10:00:00Z');
 			const entry: LoadedUsageEntry = {
+				source: 'claude',
 				timestamp: baseTime,
 				usage: {
 					inputTokens: 1000,
@@ -506,6 +514,7 @@ if (import.meta.vitest != null) {
 				},
 				costUSD: 0,
 				models: [],
+				sources: [],
 			};
 
 			const result = calculateBurnRate(block);
@@ -528,6 +537,7 @@ if (import.meta.vitest != null) {
 				},
 				costUSD: 0,
 				models: [],
+				sources: [],
 			};
 
 			const result = calculateBurnRate(block);
@@ -553,6 +563,7 @@ if (import.meta.vitest != null) {
 				},
 				costUSD: 0.02,
 				models: ['claude-sonnet-4-20250514'],
+				sources: ['claude'],
 			};
 
 			const result = calculateBurnRate(block);
@@ -579,6 +590,7 @@ if (import.meta.vitest != null) {
 				},
 				costUSD: 0.03,
 				models: ['claude-sonnet-4-20250514'],
+				sources: ['claude'],
 			};
 
 			const result = calculateBurnRate(block);
@@ -597,12 +609,14 @@ if (import.meta.vitest != null) {
 				isActive: true,
 				entries: [
 					{
+						source: 'claude',
 						timestamp: baseTime,
 						usage: { inputTokens: 1000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
 						costUSD: 0.01,
 						model: 'claude-sonnet-4-20250514',
 					},
 					{
+						source: 'claude',
 						timestamp: new Date(baseTime.getTime() + 60 * 1000),
 						usage: { inputTokens: 500, outputTokens: 200, cacheCreationInputTokens: 2000, cacheReadInputTokens: 8000 },
 						costUSD: 0.02,
@@ -617,6 +631,7 @@ if (import.meta.vitest != null) {
 				},
 				costUSD: 0.03,
 				models: ['claude-sonnet-4-20250514'],
+				sources: ['claude'],
 			};
 
 			const result = calculateBurnRate(block);
@@ -643,6 +658,7 @@ if (import.meta.vitest != null) {
 				},
 				costUSD: 0.01,
 				models: [],
+				sources: [],
 			};
 
 			const result = projectBlockUsage(block);
@@ -665,6 +681,7 @@ if (import.meta.vitest != null) {
 				},
 				costUSD: 0,
 				models: [],
+				sources: [],
 			};
 
 			const result = projectBlockUsage(block);
@@ -686,6 +703,7 @@ if (import.meta.vitest != null) {
 				},
 				costUSD: 0.01,
 				models: [],
+				sources: [],
 			};
 
 			const result = projectBlockUsage(block);
@@ -715,6 +733,7 @@ if (import.meta.vitest != null) {
 				},
 				costUSD: 0.03,
 				models: ['claude-sonnet-4-20250514'],
+				sources: ['claude'],
 			};
 
 			const result = projectBlockUsage(block);
@@ -746,6 +765,7 @@ if (import.meta.vitest != null) {
 					},
 					costUSD: 0.01,
 					models: [],
+					sources: [],
 				},
 				{
 					id: oldTime.toISOString(),
@@ -761,6 +781,7 @@ if (import.meta.vitest != null) {
 					},
 					costUSD: 0.02,
 					models: [],
+					sources: [],
 				},
 			];
 
@@ -788,6 +809,7 @@ if (import.meta.vitest != null) {
 					},
 					costUSD: 0.01,
 					models: [],
+					sources: [],
 				},
 			];
 
@@ -816,6 +838,7 @@ if (import.meta.vitest != null) {
 					},
 					costUSD: 0.01,
 					models: [],
+					sources: [],
 				},
 				{
 					id: outsideCustomRange.toISOString(),
@@ -831,6 +854,7 @@ if (import.meta.vitest != null) {
 					},
 					costUSD: 0.02,
 					models: [],
+					sources: [],
 				},
 			];
 
@@ -858,6 +882,7 @@ if (import.meta.vitest != null) {
 					},
 					costUSD: 0.01,
 					models: [],
+					sources: [],
 				},
 			];
 

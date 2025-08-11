@@ -344,7 +344,7 @@ export function createMcpServer({
 						id: block.id,
 						startTime: block.startTime.toISOString(),
 						endTime: block.endTime.toISOString(),
-						actualEndTime: block.actualEndTime?.toISOString() ?? null,
+						actualEndTime: block.actualEndTime?.toISOString(),
 						isActive: block.isActive,
 						isGap: block.isGap ?? false,
 						entries: block.entries.length,
