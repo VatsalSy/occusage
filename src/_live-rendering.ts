@@ -9,8 +9,26 @@
 import type { SessionBlock } from './_session-blocks.ts';
 import type { TerminalManager } from './_terminal-utils.ts';
 import type { CostMode, SortOrder } from './_types.ts';
-// Simple delay function
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// Simple delay function with AbortSignal support
+const delay = (ms: number, options?: { signal?: AbortSignal }) => {
+	return new Promise((resolve, reject) => {
+		if (options?.signal?.aborted) {
+			reject(new DOMException('This operation was aborted', 'AbortError'));
+			return;
+		}
+		
+		const timeoutId = setTimeout(resolve, ms);
+		
+		if (options?.signal) {
+			const abortHandler = () => {
+				clearTimeout(timeoutId);
+				reject(new DOMException('This operation was aborted', 'AbortError'));
+			};
+			
+			options.signal.addEventListener('abort', abortHandler, { once: true });
+		}
+	});
+};
 import * as ansiEscapes from 'ansi-escapes';
 import pc from 'picocolors';
 import prettyMs from 'pretty-ms';

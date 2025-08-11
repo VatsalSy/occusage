@@ -4,14 +4,17 @@
 		"jsx": "react-jsx",
 		// Environment setup & latest features
 		"lib": [
-			"ESNext"
+			"ESNext",
+			"DOM"
 		],
 		"moduleDetection": "force",
 		"module": "Preserve",
 		// Bundler mode
 		"moduleResolution": "bundler",
 		"resolveJsonModule": true,
-		"types": [],
+		"types": [
+			"bun"
+		],
 		"allowImportingTsExtensions": true,
 		"allowJs": true,
 		// Best practices
