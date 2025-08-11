@@ -1,6 +1,6 @@
 declare global {
   interface ImportMeta {
-    vitest?: unknown;
+    readonly vitest?: typeof import('vitest');
   }
 }
 

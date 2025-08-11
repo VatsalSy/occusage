@@ -42,7 +42,7 @@ type TotalsObject = TokenTotals & {
 
 /**
  * Calculates total token usage and cost across multiple usage data entries
- * @param data - Array of daily, monthly, or session usage data
+ * @param data - Array of daily, monthly, weekly, session, or project usage data
  * @returns Aggregated token totals and cost
  */
 export function calculateTotals(

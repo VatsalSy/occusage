@@ -173,7 +173,7 @@ export function parseProjectName(projectName: string): string {
  * formatProjectName('-Users-phaedrus-Development-occusage')
  * // → 'occusage'
  *
- * // With alias (when CCUSAGE_PROJECT_ALIASES="occusage=Usage Tracker")
+ * // With alias (when OCCUSAGE_PROJECT_ALIASES="occusage=Usage Tracker")
  * formatProjectName('-Users-phaedrus-Development-occusage')
  * // → 'Usage Tracker'
  * ```

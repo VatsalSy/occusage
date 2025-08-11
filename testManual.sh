@@ -1,18 +1,22 @@
 #!/bin/zsh
 
+# Enable strict mode for better error handling
+set -euo pipefail
+IFS=$'\n\t'
+
 # Function to run a command with and without --breakdown
 run_command() {
-    local cmd=$1
+    local cmd="$1"
     if [[ "$cmd" == "today" ]]; then
         echo "Running: bun run start"
         bun run start
         echo "Running: bun run start --breakdown"
         bun run start --breakdown
     else
-        echo "Running: bun run start $cmd"
-        bun run start $cmd
-        echo "Running: bun run start $cmd --breakdown"
-        bun run start $cmd --breakdown
+        echo "Running: bun run start \"$cmd\""
+        bun run start "$cmd"
+        echo "Running: bun run start \"$cmd\" --breakdown"
+        bun run start "$cmd" --breakdown
     fi
     echo ""
 }
