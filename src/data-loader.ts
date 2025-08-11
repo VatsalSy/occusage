@@ -1604,6 +1604,10 @@ export async function loadSessionBlockData(
 	const sources = options?.sources ?? ['claude', 'opencode'];
 	const allEntries: LoadedUsageEntry[] = [];
 
+	// Create a single PricingFetcher instance for both sources to avoid duplicate fetches
+	const mode = options?.mode ?? 'auto';
+	using sharedFetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+
 	// Load Claude data if included
 	if (sources.includes('claude')) {
 		// Get all Claude paths or use the specific one from options
@@ -1630,12 +1634,6 @@ export async function loadSessionBlockData(
 
 			// Sort files by timestamp to ensure chronological processing
 			const sortedFiles = await sortFilesByTimestamp(blocksFilteredFiles);
-
-			// Fetch pricing data for cost calculation only when needed
-			const mode = options?.mode ?? 'auto';
-
-			// Use PricingFetcher with using statement for automatic cleanup
-			using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
 
 			// Track processed message+request combinations for deduplication
 			const processedHashes = new Set<string>();
@@ -1667,8 +1665,8 @@ export async function loadSessionBlockData(
 						// Mark this combination as processed
 						markAsProcessed(uniqueHash, processedHashes);
 
-						const cost = fetcher != null
-							? await calculateCostForEntry(data, mode, fetcher)
+						const cost = sharedFetcher != null
+							? await calculateCostForEntry(data, mode, sharedFetcher)
 							: data.costUSD ?? 0;
 
 						// Skip entries with synthetic model or unknown model
@@ -1709,10 +1707,6 @@ export async function loadSessionBlockData(
 		try {
 			const openCodeEntries = loadOpenCodeData(options?.openCodePath);
 
-			// Initialize pricing fetcher for OpenCode cost calculation if needed
-			const mode = options?.mode ?? 'auto';
-			using openCodeFetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
-
 			// Convert OpenCode entries to LoadedUsageEntry format
 			for (const entry of openCodeEntries) {
 				// Filter by project if specified
@@ -1722,8 +1716,8 @@ export async function loadSessionBlockData(
 
 				// Calculate cost for OpenCode entries when costUSD is null
 				let calculatedCost = entry.cost ?? null;
-				if (calculatedCost == null && openCodeFetcher != null) {
-					calculatedCost = await calculateCostForOpenCodeEntry(entry, mode, openCodeFetcher);
+				if (calculatedCost == null && sharedFetcher != null) {
+					calculatedCost = await calculateCostForOpenCodeEntry(entry, mode, sharedFetcher);
 				}
 
 				allEntries.push({
