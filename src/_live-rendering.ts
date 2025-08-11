@@ -110,7 +110,7 @@ export function renderActiveBlock(terminal: TerminalManager, activeBlock: Sessio
 /**
  * Format token counts with K suffix for display
  */
-function formatTokensShort(num: number): string {
+export function formatTokensShort(num: number): string {
 	if (num >= 1000) {
 		return `${(num / 1000).toFixed(1)}k`;
 	}

@@ -15,6 +15,7 @@ describe('groupByProject', () => {
 				totalCost: 0.01,
 				modelsUsed: [createModelName('claude-sonnet-4-20250514')],
 				modelBreakdowns: [],
+				sourceBreakdowns: [],
 			},
 			{
 				date: createDailyDate('2024-01-01'),
@@ -26,6 +27,7 @@ describe('groupByProject', () => {
 				totalCost: 0.02,
 				modelsUsed: [createModelName('claude-opus-4-20250514')],
 				modelBreakdowns: [],
+				sourceBreakdowns: [],
 			},
 		];
 
@@ -50,6 +52,7 @@ describe('groupByProject', () => {
 				totalCost: 0.01,
 				modelsUsed: [createModelName('claude-sonnet-4-20250514')],
 				modelBreakdowns: [],
+				sourceBreakdowns: [],
 			},
 		];
 
@@ -73,6 +76,7 @@ describe('groupDataByProject', () => {
 				totalCost: 0.01,
 				modelsUsed: [createModelName('claude-sonnet-4-20250514')],
 				modelBreakdowns: [],
+				sourceBreakdowns: [],
 			},
 			{
 				date: createDailyDate('2024-01-02'),
@@ -84,6 +88,7 @@ describe('groupDataByProject', () => {
 				totalCost: 0.008,
 				modelsUsed: [createModelName('claude-sonnet-4-20250514')],
 				modelBreakdowns: [],
+				sourceBreakdowns: [],
 			},
 		];
 

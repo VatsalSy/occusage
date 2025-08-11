@@ -949,9 +949,15 @@ export async function calculateCostForEntry(
 	mode: CostMode,
 	fetcher: PricingFetcher,
 ): Promise<number> {
+	const tokens = {
+		input_tokens: data.message.usage.input_tokens,
+		output_tokens: data.message.usage.output_tokens,
+		cache_creation_input_tokens: data.message.usage.cache_creation_input_tokens,
+		cache_read_input_tokens: data.message.usage.cache_read_input_tokens,
+	};
 	return calculateCostGeneric(
 		data.costUSD,
-		data.message.usage,
+		tokens,
 		data.message.model,
 		mode,
 		fetcher,

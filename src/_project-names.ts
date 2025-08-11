@@ -75,7 +75,7 @@ export function clearAliasCache(): void {
  * // → 'Unknown Project'
  * ```
  */
-function parseProjectName(projectName: string): string {
+export function parseProjectName(projectName: string): string {
 	if (projectName === 'unknown' || projectName === '') {
 		return 'Unknown Project';
 	}
