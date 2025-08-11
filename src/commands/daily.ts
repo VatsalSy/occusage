@@ -1,3 +1,5 @@
+import type { ModelName } from '../_types.ts';
+import type { DailyUsage, ModelBreakdown } from '../data-loader.ts';
 import process from 'node:process';
 import { Result } from '@praha/byethrow';
 import { define } from 'gunshi';
@@ -6,7 +8,7 @@ import { groupByProject, groupDataByProject } from '../_daily-grouping.ts';
 import { processWithJq } from '../_jq-processor.ts';
 import { formatProjectName } from '../_project-names.ts';
 import { sharedCommandConfig } from '../_shared-args.ts';
-import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
+import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
 	createTotalsObject,
@@ -15,6 +17,46 @@ import {
 import { formatDateCompact, loadUnifiedDailyUsageData } from '../data-loader.ts';
 import { detectMismatches, printMismatchReport } from '../debug.ts';
 import { log, logger } from '../logger.ts';
+
+/**
+ * Aggregates model breakdowns across all sources for a daily entry
+ */
+function aggregateDailyModelBreakdowns(data: DailyUsage): ModelBreakdown[] {
+	const modelAggregates = new Map<string, {
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+		cacheReadTokens: number;
+		cost: number;
+	}>();
+
+	// Aggregate from existing model breakdowns
+	for (const breakdown of data.modelBreakdowns) {
+		const existing = modelAggregates.get(breakdown.modelName) ?? {
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheCreationTokens: 0,
+			cacheReadTokens: 0,
+			cost: 0,
+		};
+
+		modelAggregates.set(breakdown.modelName, {
+			inputTokens: existing.inputTokens + breakdown.inputTokens,
+			outputTokens: existing.outputTokens + breakdown.outputTokens,
+			cacheCreationTokens: existing.cacheCreationTokens + breakdown.cacheCreationTokens,
+			cacheReadTokens: existing.cacheReadTokens + breakdown.cacheReadTokens,
+			cost: existing.cost + breakdown.cost,
+		});
+	}
+
+	// Convert to ModelBreakdown array and sort by cost descending
+	return Array.from(modelAggregates.entries())
+		.map(([modelName, stats]) => ({
+			modelName: modelName as ModelName,
+			...stats,
+		}))
+		.sort((a, b) => b.cost - a.cost);
+}
 
 export const dailyCommand = define({
 	name: 'daily',
@@ -113,49 +155,88 @@ export const dailyCommand = define({
 			logger.box('Claude Code Token Usage Report - Daily');
 
 			// Create table with compact mode support
+			// When breakdown is enabled, remove Source column for cleaner display
 			const table = new ResponsiveTable({
-				head: [
-					'Source',
-					'Date',
-					'Models',
-					'Input',
-					'Output',
-					'Cache Create',
-					'Cache Read',
-					'Total Tokens',
-					'Cost (USD)',
-				],
+				head: ctx.values.breakdown
+					? [
+							'Date',
+							'Models',
+							'Input',
+							'Output',
+							'Cache Create',
+							'Cache Read',
+							'Total Tokens',
+							'Cost (USD)',
+						]
+					: [
+							'Source',
+							'Date',
+							'Models',
+							'Input',
+							'Output',
+							'Cache Create',
+							'Cache Read',
+							'Total Tokens',
+							'Cost (USD)',
+						],
 				style: {
 					head: ['cyan'],
 				},
-				colAligns: [
-					'center',
-					'left',
-					'left',
-					'right',
-					'right',
-					'right',
-					'right',
-					'right',
-					'right',
-				],
+				colAligns: ctx.values.breakdown
+					? [
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+						]
+					: [
+							'center',
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+						],
 				dateFormatter: (dateStr: string) => formatDateCompact(dateStr, ctx.values.timezone, ctx.values.locale),
-				compactHead: [
-					'Source',
-					'Date',
-					'Models',
-					'Input',
-					'Output',
-					'Cost (USD)',
-				],
-				compactColAligns: [
-					'center',
-					'left',
-					'left',
-					'right',
-					'right',
-					'right',
-				],
+				compactHead: ctx.values.breakdown
+					? [
+							'Date',
+							'Models',
+							'Input',
+							'Output',
+							'Cost (USD)',
+						]
+					: [
+							'Source',
+							'Date',
+							'Models',
+							'Input',
+							'Output',
+							'Cost (USD)',
+						],
+				compactColAligns: ctx.values.breakdown
+					? [
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+						]
+					: [
+							'center',
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+						],
 				compactThreshold: 100,
 			});
 
@@ -169,24 +250,169 @@ export const dailyCommand = define({
 					// Add project section header
 					if (!isFirstProject) {
 						// Add empty row for visual separation between projects
-						table.push(['', '', '', '', '', '', '', '', '']);
+						const projectSeparatorCols = ctx.values.breakdown ? 8 : 9;
+						table.push(Array.from({ length: projectSeparatorCols }, () => ''));
 					}
 
 					// Add project header row
-					table.push([
-						'',
-						pc.cyan(`Project: ${formatProjectName(projectName)}`),
-						'',
-						'',
-						'',
-						'',
-						'',
-						'',
-						'',
-					]);
+					const projectHeaderCols = ctx.values.breakdown ? 8 : 9;
+					const projectHeaderRow = Array.from({ length: projectHeaderCols }, () => '');
+					projectHeaderRow[ctx.values.breakdown ? 0 : 1] = pc.cyan(`Project: ${formatProjectName(projectName)}`);
+					table.push(projectHeaderRow);
 
-					// Add data rows for this project
+					// Add data rows for this project with date separation
+					let previousDateInProject = '';
+					let isFirstDateInProject = true;
+
 					for (const data of projectData) {
+						// Add visual separation between different dates within the same project
+						if (data.date !== previousDateInProject && !isFirstDateInProject) {
+							// Add separator row between dates within project
+							const separatorCols = ctx.values.breakdown ? 8 : 9;
+							table.push(Array.from({ length: separatorCols }, (_, i) => i === 1 ? pc.dim('─'.repeat(10)) : ''));
+						}
+
+						if (ctx.values.breakdown) {
+							// In breakdown mode, show one row per day with aggregated totals
+							table.push([
+								data.date,
+								formatModelsDisplayMultiline(data.modelsUsed),
+								formatNumber(data.inputTokens),
+								formatNumber(data.outputTokens),
+								formatNumber(data.cacheCreationTokens),
+								formatNumber(data.cacheReadTokens),
+								formatNumber(getTotalTokens(data)),
+								formatCurrency(data.totalCost),
+							]);
+
+							// Add model breakdown rows with aggregated data
+							const aggregatedBreakdowns = aggregateDailyModelBreakdowns(data);
+							// In breakdown mode, we need: ['', '└─ model', data...]
+							for (const breakdown of aggregatedBreakdowns) {
+								const totalTokens = breakdown.inputTokens + breakdown.outputTokens
+									+ breakdown.cacheCreationTokens + breakdown.cacheReadTokens;
+
+								// Format model name (e.g., "claude-sonnet-4-20250514" -> "sonnet-4")
+								const match = breakdown.modelName.match(/claude-(\w+)-(\d+)-\d+/);
+								const formattedModelName = match != null ? `${match[1]}-${match[2]}` : breakdown.modelName;
+
+								table.push([
+									'', // Empty Date column
+									`  └─ ${formattedModelName}`, // Model name in Models column
+									pc.gray(formatNumber(breakdown.inputTokens)),
+									pc.gray(formatNumber(breakdown.outputTokens)),
+									pc.gray(formatNumber(breakdown.cacheCreationTokens)),
+									pc.gray(formatNumber(breakdown.cacheReadTokens)),
+									pc.gray(formatNumber(totalTokens)),
+									pc.gray(formatCurrency(breakdown.cost)),
+								]);
+							}
+						}
+						else {
+							// Show separate rows for each source
+							if (data.sourceBreakdowns?.length > 0) {
+								for (const sourceBreakdown of data.sourceBreakdowns) {
+									table.push([
+										formatSources([sourceBreakdown.source]),
+										data.date,
+										formatModelsDisplayMultiline(data.modelsUsed),
+										formatNumber(sourceBreakdown.inputTokens),
+										formatNumber(sourceBreakdown.outputTokens),
+										formatNumber(sourceBreakdown.cacheCreationTokens),
+										formatNumber(sourceBreakdown.cacheReadTokens),
+										formatNumber(sourceBreakdown.inputTokens + sourceBreakdown.outputTokens + sourceBreakdown.cacheCreationTokens + sourceBreakdown.cacheReadTokens),
+										formatCurrency(sourceBreakdown.totalCost),
+									]);
+								}
+
+								// Add total row if there are multiple sources
+								if (data.sourceBreakdowns.length > 1) {
+									table.push([
+										pc.bold('TOTAL'),
+										data.date,
+										formatModelsDisplayMultiline(data.modelsUsed),
+										formatNumber(data.inputTokens),
+										formatNumber(data.outputTokens),
+										formatNumber(data.cacheCreationTokens),
+										formatNumber(data.cacheReadTokens),
+										formatNumber(getTotalTokens(data)),
+										formatCurrency(data.totalCost),
+									]);
+								}
+							}
+							else {
+								// Fallback for data without source breakdowns
+								table.push([
+									'',
+									data.date,
+									formatModelsDisplayMultiline(data.modelsUsed),
+									formatNumber(data.inputTokens),
+									formatNumber(data.outputTokens),
+									formatNumber(data.cacheCreationTokens),
+									formatNumber(data.cacheReadTokens),
+									formatNumber(getTotalTokens(data)),
+									formatCurrency(data.totalCost),
+								]);
+							}
+						}
+
+						previousDateInProject = data.date;
+						isFirstDateInProject = false;
+					}
+
+					isFirstProject = false;
+				}
+			}
+			else {
+				// Standard display without project grouping - group by date for visual separation
+				let previousDate = '';
+				let isFirstDate = true;
+
+				for (const data of dailyData) {
+					// Add visual separation between different dates
+					if (data.date !== previousDate && !isFirstDate) {
+						// Add separator row between dates
+						const separatorCols = ctx.values.breakdown ? 8 : 9;
+						table.push(Array.from({ length: separatorCols }, (_, i) => i === 1 ? pc.dim('─'.repeat(10)) : ''));
+					}
+
+					if (ctx.values.breakdown) {
+						// In breakdown mode, show one row per day with aggregated totals
+						table.push([
+							data.date,
+							formatModelsDisplayMultiline(data.modelsUsed),
+							formatNumber(data.inputTokens),
+							formatNumber(data.outputTokens),
+							formatNumber(data.cacheCreationTokens),
+							formatNumber(data.cacheReadTokens),
+							formatNumber(getTotalTokens(data)),
+							formatCurrency(data.totalCost),
+						]);
+
+						// Add model breakdown rows with aggregated data
+						const aggregatedBreakdowns = aggregateDailyModelBreakdowns(data);
+						// In breakdown mode, we need: ['', '└─ model', data...]
+						for (const breakdown of aggregatedBreakdowns) {
+							const totalTokens = breakdown.inputTokens + breakdown.outputTokens
+								+ breakdown.cacheCreationTokens + breakdown.cacheReadTokens;
+
+							// Format model name (e.g., "claude-sonnet-4-20250514" -> "sonnet-4")
+							const match = breakdown.modelName.match(/claude-(\w+)-(\d+)-\d+/);
+							const formattedModelName = match != null ? `${match[1]}-${match[2]}` : breakdown.modelName;
+
+							table.push([
+								'', // Empty Date column
+								`  └─ ${formattedModelName}`, // Model name in Models column
+								pc.gray(formatNumber(breakdown.inputTokens)),
+								pc.gray(formatNumber(breakdown.outputTokens)),
+								pc.gray(formatNumber(breakdown.cacheCreationTokens)),
+								pc.gray(formatNumber(breakdown.cacheReadTokens)),
+								pc.gray(formatNumber(totalTokens)),
+								pc.gray(formatCurrency(breakdown.cost)),
+							]);
+						}
+					}
+					else {
 						// Show separate rows for each source
 						if (data.sourceBreakdowns?.length > 0) {
 							for (const sourceBreakdown of data.sourceBreakdowns) {
@@ -232,95 +458,43 @@ export const dailyCommand = define({
 								formatCurrency(data.totalCost),
 							]);
 						}
-
-						// Add model breakdown rows if flag is set
-						if (ctx.values.breakdown) {
-							pushBreakdownRows(table, data.modelBreakdowns);
-						}
 					}
 
-					isFirstProject = false;
-				}
-			}
-			else {
-				// Standard display without project grouping
-				for (const data of dailyData) {
-					// Show separate rows for each source
-					if (data.sourceBreakdowns?.length > 0) {
-						for (const sourceBreakdown of data.sourceBreakdowns) {
-							table.push([
-								formatSources([sourceBreakdown.source]),
-								data.date,
-								formatModelsDisplayMultiline(data.modelsUsed),
-								formatNumber(sourceBreakdown.inputTokens),
-								formatNumber(sourceBreakdown.outputTokens),
-								formatNumber(sourceBreakdown.cacheCreationTokens),
-								formatNumber(sourceBreakdown.cacheReadTokens),
-								formatNumber(sourceBreakdown.inputTokens + sourceBreakdown.outputTokens + sourceBreakdown.cacheCreationTokens + sourceBreakdown.cacheReadTokens),
-								formatCurrency(sourceBreakdown.totalCost),
-							]);
-						}
-
-						// Add total row if there are multiple sources
-						if (data.sourceBreakdowns.length > 1) {
-							table.push([
-								pc.bold('TOTAL'),
-								data.date,
-								formatModelsDisplayMultiline(data.modelsUsed),
-								formatNumber(data.inputTokens),
-								formatNumber(data.outputTokens),
-								formatNumber(data.cacheCreationTokens),
-								formatNumber(data.cacheReadTokens),
-								formatNumber(getTotalTokens(data)),
-								formatCurrency(data.totalCost),
-							]);
-						}
-					}
-					else {
-						// Fallback for data without source breakdowns
-						table.push([
-							'',
-							data.date,
-							formatModelsDisplayMultiline(data.modelsUsed),
-							formatNumber(data.inputTokens),
-							formatNumber(data.outputTokens),
-							formatNumber(data.cacheCreationTokens),
-							formatNumber(data.cacheReadTokens),
-							formatNumber(getTotalTokens(data)),
-							formatCurrency(data.totalCost),
-						]);
-					}
-
-					// Add model breakdown rows if flag is set
-					if (ctx.values.breakdown) {
-						pushBreakdownRows(table, data.modelBreakdowns);
-					}
+					previousDate = data.date;
+					isFirstDate = false;
 				}
 			}
 
 			// Add empty row for visual separation before totals
-			table.push([
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-			]);
+			const totalsCols = ctx.values.breakdown ? 8 : 9;
+			table.push(Array.from({ length: totalsCols }, () => ''));
 
 			// Add totals
-			table.push([
-				pc.yellow('Total'),
-				'', // Empty for Models column in totals
-				pc.yellow(formatNumber(totals.inputTokens)),
-				pc.yellow(formatNumber(totals.outputTokens)),
-				pc.yellow(formatNumber(totals.cacheCreationTokens)),
-				pc.yellow(formatNumber(totals.cacheReadTokens)),
-				pc.yellow(formatNumber(getTotalTokens(totals))),
-				pc.yellow(formatCurrency(totals.totalCost)),
-			]);
+			if (ctx.values.breakdown) {
+				table.push([
+					pc.yellow('Total'),
+					'', // Empty for Models column in totals
+					pc.yellow(formatNumber(totals.inputTokens)),
+					pc.yellow(formatNumber(totals.outputTokens)),
+					pc.yellow(formatNumber(totals.cacheCreationTokens)),
+					pc.yellow(formatNumber(totals.cacheReadTokens)),
+					pc.yellow(formatNumber(getTotalTokens(totals))),
+					pc.yellow(formatCurrency(totals.totalCost)),
+				]);
+			}
+			else {
+				table.push([
+					pc.yellow('Total'),
+					'', // Empty for Date column in totals
+					'', // Empty for Models column in totals
+					pc.yellow(formatNumber(totals.inputTokens)),
+					pc.yellow(formatNumber(totals.outputTokens)),
+					pc.yellow(formatNumber(totals.cacheCreationTokens)),
+					pc.yellow(formatNumber(totals.cacheReadTokens)),
+					pc.yellow(formatNumber(getTotalTokens(totals))),
+					pc.yellow(formatCurrency(totals.totalCost)),
+				]);
+			}
 
 			log(table.toString());
 
