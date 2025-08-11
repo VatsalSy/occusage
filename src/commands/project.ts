@@ -39,20 +39,28 @@ export const projectCommand = define({
 		const until = ctx.values.until;
 
 		if (!ctx.values.full && since == null && until == null) {
-			// Calculate current week (Monday to Sunday)
-			const now = new Date();
-			const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-			const mondayOffset = currentDay === 0 ? -6 : -(currentDay - 1); // Days to subtract to get to Monday
+			// Calculate current week (Monday to Sunday) using the specified timezone
+			const timezone = ctx.values.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+			const formatter = new Intl.DateTimeFormat('en-US', {
+				timeZone: timezone,
+				year: 'numeric',
+				month: '2-digit',
+				day: '2-digit',
+				weekday: 'long',
+			});
 
-			const monday = new Date(now);
-			monday.setDate(now.getDate() + mondayOffset);
-			monday.setHours(0, 0, 0, 0);
+			const partsToRecord = (date: Date): Record<string, string> => {
+				return Object.fromEntries(formatter.formatToParts(date).map(p => [p.type, p.value]));
+			};
 
-			// Format as YYYYMMDD
-			const year = monday.getFullYear();
-			const month = String(monday.getMonth() + 1).padStart(2, '0');
-			const day = String(monday.getDate()).padStart(2, '0');
-			since = `${year}${month}${day}`;
+			const nowParts = partsToRecord(new Date());
+			const weekdayName = nowParts.weekday;
+			const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+			const currentIndex = days.indexOf(weekdayName as typeof days[number]);
+			const mondayOffset = currentIndex === 0 ? -6 : -(currentIndex - 1); // Days to subtract to get to Monday
+
+			const mondayParts = partsToRecord(new Date(Date.now() + mondayOffset * 24 * 60 * 60 * 1000));
+			since = `${mondayParts.year}${mondayParts.month}${mondayParts.day}`;
 		}
 
 		const projectData = await loadUnifiedProjectData({
@@ -219,12 +227,18 @@ export const projectCommand = define({
 
 			for (let i = 0; i < projectData.length; i++) {
 				const data = projectData[i];
+				if (data == null) {
+					continue;
+				}
 
 				// Add visual separation before projects with multiple sources (but not before the first project)
-				if (!isFirstProject && !ctx.values.breakdown && data.sourceBreakdowns?.length > 1) {
-					// Add separator row before projects that have multiple sources
-					const separatorCols = 10;
-					table.push(Array.from({ length: separatorCols }, (_, idx) => idx === 1 ? pc.dim('───────────────') : ''));
+				if (!isFirstProject && !ctx.values.breakdown) {
+					const sourceBreakdowns = data.sourceBreakdowns;
+					if (sourceBreakdowns != null && sourceBreakdowns.length > 1) {
+						// Add separator row before projects that have multiple sources
+						const separatorCols = ctx.values.breakdown ? 9 : 10;
+						table.push(Array.from({ length: separatorCols }, (_, idx) => (idx === 1 ? pc.dim('───────────────') : '')));
+					}
 				}
 
 				if (ctx.values.breakdown) {
@@ -246,8 +260,9 @@ export const projectCommand = define({
 				}
 				else {
 					// Normal mode: show separate rows for each source
-					if (data.sourceBreakdowns?.length > 0) {
-						for (const sourceBreakdown of data.sourceBreakdowns) {
+					if ((data.sourceBreakdowns != null) && data.sourceBreakdowns.length > 0) {
+						const sourceBreakdowns = data.sourceBreakdowns;
+						for (const sourceBreakdown of sourceBreakdowns) {
 							table.push([
 								formatSources([sourceBreakdown.source]),
 								data.projectName,
@@ -256,14 +271,14 @@ export const projectCommand = define({
 								formatNumber(sourceBreakdown.outputTokens),
 								formatNumber(sourceBreakdown.cacheCreationTokens),
 								formatNumber(sourceBreakdown.cacheReadTokens),
-								formatNumber(sourceBreakdown.inputTokens + sourceBreakdown.outputTokens + sourceBreakdown.cacheCreationTokens + sourceBreakdown.cacheReadTokens),
+								formatNumber(getTotalTokens(sourceBreakdown)),
 								formatCurrency(sourceBreakdown.totalCost),
 								data.lastActivity,
 							]);
 						}
 
 						// Add total row if there are multiple sources
-						if (data.sourceBreakdowns.length > 1) {
+						if (sourceBreakdowns.length > 1) {
 							table.push([
 								pc.bold('TOTAL'),
 								data.projectName,
@@ -279,8 +294,8 @@ export const projectCommand = define({
 
 							// Add separator after TOTAL row (if not the last project)
 							if (i < projectData.length - 1) {
-								const separatorCols = 10;
-								table.push(Array.from({ length: separatorCols }, (_, idx) => idx === 1 ? pc.dim('───────────────') : ''));
+								const separatorCols = ctx.values.breakdown ? 9 : 10;
+								table.push(Array.from({ length: separatorCols }, (_, idx) => (idx === 1 ? pc.dim('───────────────') : '')));
 							}
 						}
 					}
