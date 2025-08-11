@@ -1,0 +1,359 @@
+import type { OpenCodeMessage, OpenCodePart, OpenCodeUsageEntry } from './_opencode-types.ts';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import process from 'node:process';
+import {
+	DEFAULT_OPENCODE_DATA_PATH,
+	OPENCODE_DATA_DIR_ENV,
+	OPENCODE_PROJECTS_DIR_NAME,
+	USER_HOME_DIR,
+} from './_consts.ts';
+import {
+	opencodeMessageSchema,
+	opencodePartSchema,
+} from './_opencode-types.ts';
+import { logger } from './logger.ts';
+
+/**
+ * Normalize model identifier strings to a comparable canonical form
+ * - lowercases
+ * - strips provider prefixes like "anthropic:", "openrouter:", etc.
+ * - trims whitespace
+ * - prefixes known alias families (sonnet/opus/haiku) with "claude-" for detection
+ */
+function normalizeModelId(modelId?: string): string | null {
+    if (modelId == null) return null;
+    let s = modelId.trim().toLowerCase();
+    if (s === '') return null;
+    s = s.replace(/^(anthropic:|openrouter:|bedrock:|vertex:)/, '');
+    // If starts with family alias, prefix claude-
+    if (/^(sonnet|opus|haiku)(-|$)/.test(s) && !s.startsWith('claude-')) {
+        s = `claude-${s}`;
+    }
+    return s;
+}
+
+/**
+ * Encode project path for OpenCode storage using URL encoding
+ */
+export function encodeProjectPath(path: string): string {
+	// Remove leading slash if present
+	const pathWithoutSlash = path.startsWith('/') ? path.slice(1) : path;
+	return encodeURIComponent(pathWithoutSlash);
+}
+
+/**
+ * Decode OpenCode encoded project path to readable format
+ * Uses URL decoding with fallback to legacy dash replacement for backward compatibility
+ */
+export function decodeProjectPath(encodedPath: string): string {
+	// Check if this looks like URL encoding (contains % characters)
+	if (encodedPath.includes('%')) {
+		try {
+			// Try URL decoding first (new encoding method)
+			const decodedPath = decodeURIComponent(encodedPath);
+			// Ensure leading slash
+			return decodedPath.startsWith('/') ? decodedPath : `/${decodedPath}`;
+		} catch {
+			// If URL decoding fails, fall through to legacy method
+		}
+	}
+
+	// Fallback to legacy decoding with safeguards
+	// Old OpenCode versions encoded paths by replacing path separators with dashes.
+	// This risks corrupting valid dashes (e.g., "my-project"). To reduce risk,
+	// only apply when the string appears to be a legacy absolute path without URL encoding:
+	// - no "%" present (handled above)
+	// - at least 3 dash-separated segments and starts with a known root token
+	// - contains tokens like "Users" or "home" likely representing a POSIX path
+	const legacyCandidates = encodedPath.split('-');
+	const looksLegacy = legacyCandidates.length >= 3
+		&& (/^(users|home|var|etc|opt|private|Volumes)$/i).test(legacyCandidates[0] ?? '');
+	if (looksLegacy) {
+		return `/${encodedPath.replace(/-/g, '/')}`;
+	}
+
+	// Default: treat as already-decoded simple project name segment
+	return encodedPath.startsWith('/') ? encodedPath : `/${encodedPath}`;
+}
+
+/**
+ * Get OpenCode data directories from environment or defaults
+ */
+export function getOpenCodeDirectories(): string[] {
+	const envDirs = process.env[OPENCODE_DATA_DIR_ENV];
+	if (envDirs != null && envDirs.length > 0) {
+		return envDirs
+			.split(',')
+			.map(dir => dir.trim())
+			.filter(dir => dir.length > 0)
+			.map(dir => resolve(dir));
+	}
+
+	// Default directory
+	const defaultPath = join(USER_HOME_DIR, DEFAULT_OPENCODE_DATA_PATH);
+	if (existsSync(defaultPath)) {
+		return [defaultPath];
+	}
+
+	return [];
+}
+
+
+
+/**
+ * Load messages from OpenCode session
+ */
+function loadMessages(sessionPath: string, sessionId: string): OpenCodeMessage[] {
+	const messagesPath = join(sessionPath, 'message', sessionId);
+
+	if (!existsSync(messagesPath)) {
+		return [];
+	}
+
+	const messages: OpenCodeMessage[] = [];
+
+	try {
+		const messageFiles = readdirSync(messagesPath).filter(f => f.endsWith('.json'));
+
+		for (const file of messageFiles) {
+			const messagePath = join(messagesPath, file);
+			try {
+				const content = readFileSync(messagePath, 'utf-8');
+				const parsed = JSON.parse(content) as unknown;
+				const validated = opencodeMessageSchema.parse(parsed);
+				messages.push(validated);
+			}
+			catch {
+				logger.debug('Failed to parse OpenCode message:', messagePath);
+			}
+		}
+	}
+	catch (error) {
+		logger.debug('Error reading OpenCode messages:', error);
+	}
+
+	return messages;
+}
+
+/**
+ * Load parts (containing token data) from OpenCode session
+ */
+function loadParts(sessionPath: string, sessionId: string): Map<string, OpenCodePart[]> {
+	const partsPath = join(sessionPath, 'part', sessionId);
+	const partsByMessage = new Map<string, OpenCodePart[]>();
+
+	if (!existsSync(partsPath)) {
+		return partsByMessage;
+	}
+
+	try {
+		const messageIds = readdirSync(partsPath);
+
+		for (const messageId of messageIds) {
+			const messagePartsPath = join(partsPath, messageId);
+			if (!existsSync(messagePartsPath)) {
+				continue;
+			}
+
+			const parts: OpenCodePart[] = [];
+			const partFiles = readdirSync(messagePartsPath).filter(f => f.endsWith('.json'));
+
+			for (const file of partFiles) {
+				const partPath = join(messagePartsPath, file);
+				try {
+					const content = readFileSync(partPath, 'utf-8');
+					const parsed = JSON.parse(content) as unknown;
+					const validated = opencodePartSchema.parse(parsed);
+					parts.push(validated);
+				}
+				catch {
+					logger.debug('Failed to parse OpenCode part:', partPath);
+				}
+			}
+
+			if (parts.length > 0) {
+				partsByMessage.set(messageId, parts);
+			}
+		}
+	}
+	catch (error) {
+		logger.debug('Error reading OpenCode parts:', error);
+	}
+
+	return partsByMessage;
+}
+
+/**
+ * Aggregate token data from parts for a message
+ */
+function aggregateTokensFromParts(parts: OpenCodePart[]): OpenCodeUsageEntry['tokens'] {
+	const tokens: OpenCodeUsageEntry['tokens'] = {
+		input: 0,
+		output: 0,
+	};
+
+	let cacheRead = 0;
+	let cacheWrite = 0;
+	let reasoning = 0;
+
+	for (const part of parts) {
+		// Only process step-finish parts which contain token data
+		if (part.type !== 'step-finish' || part.tokens == null) {
+			continue;
+		}
+
+		tokens.input += part.tokens.input ?? 0;
+		tokens.output += part.tokens.output ?? 0;
+		reasoning += part.tokens.reasoning ?? 0;
+
+		if (part.tokens.cache != null) {
+			cacheRead += part.tokens.cache.read ?? 0;
+			cacheWrite += part.tokens.cache.write ?? 0;
+		}
+	}
+
+	if (cacheRead > 0 || cacheWrite > 0) {
+		tokens.cache = {
+			read: cacheRead,
+			write: cacheWrite,
+		};
+	}
+
+	if (reasoning > 0) {
+		tokens.reasoning = reasoning;
+	}
+
+	return tokens;
+}
+
+/**
+ * Load OpenCode usage data from a project
+ */
+function loadProjectData(projectPath: string): OpenCodeUsageEntry[] {
+	const entries: OpenCodeUsageEntry[] = [];
+	const encodedProjectName = projectPath.split('/').pop() ?? '';
+	const decodedProjectPath = decodeProjectPath(encodedProjectName);
+	const storagePath = join(projectPath, 'storage', 'session');
+
+	if (!existsSync(storagePath)) {
+		return entries;
+	}
+
+	// Load session info to get list of sessions
+	const infoPath = join(storagePath, 'info');
+	if (!existsSync(infoPath)) {
+		return entries;
+	}
+
+	const sessionFiles = readdirSync(infoPath).filter(f => f.endsWith('.json'));
+
+	for (const sessionFile of sessionFiles) {
+		const sessionId = sessionFile.replace('.json', '');
+
+		// Load messages and parts for this session
+		const messages = loadMessages(storagePath, sessionId);
+		const partsByMessage = loadParts(storagePath, sessionId);
+
+		// Process each message with parts
+		for (const message of messages) {
+			const parts = partsByMessage.get(message.id);
+			if (parts == null || parts.length === 0) {
+				continue;
+			}
+
+			// Find step-finish parts with token data
+			const stepFinishParts = parts.filter(p => p.type === 'step-finish' && p.tokens != null);
+			if (stepFinishParts.length === 0) {
+				continue;
+			}
+
+			// Use the first step-finish part for metadata
+			const primaryPart = stepFinishParts[0];
+			if (primaryPart == null) {
+				continue;
+			}
+
+			// Aggregate tokens from all parts
+			const tokens = aggregateTokensFromParts(parts);
+
+			// Calculate total cost from all parts
+			// Cost is per-part; leave undefined when no parts report cost
+			let totalCost: number | undefined = undefined;
+			for (const part of stepFinishParts) {
+				if (part.cost != null) {
+					if (totalCost == null) totalCost = 0;
+					totalCost += part.cost;
+				}
+			}
+
+			// Use message timestamp (messages have proper timestamps, parts don't)
+			const timestampMs = message.time?.created ?? message.time?.completed ?? 0;
+			if (timestampMs === 0) {
+				continue;
+			}
+
+			// Skip entries without valid model information (non-Claude models or unknown)
+			const modelRaw = message.modelID ?? primaryPart.modelID ?? message.model;
+			const normalizedModel = normalizeModelId(modelRaw);
+			if (normalizedModel == null || normalizedModel === 'unknown' || !normalizedModel.includes('claude')) {
+				continue;
+			}
+
+			// Create usage entry
+			const entry: OpenCodeUsageEntry = {
+				sessionId,
+				projectPath: decodedProjectPath,
+				encodedProjectPath: encodedProjectName,
+				timestamp: new Date(timestampMs),
+				model: modelRaw ?? 'unknown',
+				provider: message.providerID ?? primaryPart.providerID ?? message.provider,
+				tokens,
+				cost: totalCost,
+				messageId: message.id,
+				type: message.role,
+			};
+
+			entries.push(entry);
+		}
+	}
+
+	return entries;
+}
+
+/**
+ * Load all OpenCode usage data
+ */
+export function loadOpenCodeData(openCodePath?: string, suppressLogs = false): OpenCodeUsageEntry[] {
+	// If a specific path is provided (for testing), use only that
+	const directories = openCodePath != null ? [openCodePath] : getOpenCodeDirectories();
+	const allEntries: OpenCodeUsageEntry[] = [];
+
+	for (const dir of directories) {
+		const projectsPath = join(dir, OPENCODE_PROJECTS_DIR_NAME);
+		if (!existsSync(projectsPath)) {
+			logger.debug('OpenCode projects directory not found:', projectsPath);
+			continue;
+		}
+
+		try {
+			const projects = readdirSync(projectsPath);
+			for (const project of projects) {
+				const projectPath = join(projectsPath, project);
+				const entries = loadProjectData(projectPath);
+				allEntries.push(...entries);
+			}
+		}
+		catch (error) {
+			logger.warn('Error reading OpenCode projects:', error);
+		}
+	}
+
+	if (!suppressLogs) {
+		logger.info(`Loaded ${allEntries.length} OpenCode usage entries`);
+	}
+	return allEntries;
+}
+
+// In-source tests
+

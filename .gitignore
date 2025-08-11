@@ -35,5 +35,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 .eslintcache
 
-# lsmcp cache
-.lsmcp/cache
+CLAUDE.md
+# Cursor AI agent configuration
+**/.cursor/

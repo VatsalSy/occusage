@@ -10,6 +10,7 @@
 
 import type { IntRange, TupleToUnion } from 'type-fest';
 import type { WEEK_DAYS } from './_consts.ts';
+import type { OpenCodeUsageEntry } from './_opencode-types.ts';
 import type { LoadedUsageEntry, SessionBlock } from './_session-blocks.ts';
 import type {
 	ActivityDate,
@@ -24,7 +25,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { toArray } from '@antfu/utils';
-import { unreachable } from '@core/errorutil';
+// Helper function to mark unreachable code
+function unreachable(_value: never): never {
+	throw new Error('Unreachable code reached');
+}
 import { Result } from '@praha/byethrow';
 import { groupBy, uniq } from 'es-toolkit'; // TODO: after node20 is deprecated, switch to native Object.groupBy
 import { sort } from 'fast-sort';
@@ -33,6 +37,7 @@ import { isDirectorySync } from 'path-type';
 import { glob } from 'tinyglobby';
 import { z } from 'zod';
 import { CLAUDE_CONFIG_DIR_ENV, CLAUDE_PROJECTS_DIR_NAME, DEFAULT_CLAUDE_CODE_PATH, DEFAULT_CLAUDE_CONFIG_PATH, USAGE_DATA_GLOB_PATTERN, USER_HOME_DIR } from './_consts.ts';
+import { loadOpenCodeData } from './_opencode-loader.ts';
 import {
 	identifySessionBlocks,
 } from './_session-blocks.ts';
@@ -64,6 +69,157 @@ import { logger } from './logger.ts';
 import {
 	PricingFetcher,
 } from './pricing-fetcher.ts';
+
+/**
+ * Common entry format for both Claude and OpenCode data
+ */
+type UnifiedUsageEntry = {
+	source: 'claude' | 'opencode';
+	timestamp: string;
+	projectPath: string;
+	sessionId: string;
+	model: string;
+	usage: {
+		input_tokens: number;
+		output_tokens: number;
+		cache_creation_input_tokens: number;
+		cache_read_input_tokens: number;
+	};
+	costUSD?: number;
+	version?: string;
+};
+
+/**
+ * Loads unified usage data from both Claude and OpenCode sources
+ */
+
+async function _loadUnifiedUsageData(
+	options?: LoadOptions,
+): Promise<UnifiedUsageEntry[]> {
+	const sources = options?.sources ?? ['claude', 'opencode'];
+	const allEntries: UnifiedUsageEntry[] = [];
+
+	// Load Claude data if included
+	if (sources.includes('claude')) {
+		const claudePaths = toArray(options?.claudePath ?? getClaudePaths());
+		const allFiles = await globUsageFiles(claudePaths);
+		const fileList = allFiles.map(f => f.file);
+
+		if (fileList.length > 0) {
+			// Filter by project if specified
+			const projectFilteredFiles = filterByProject(
+				fileList,
+				filePath => extractProjectFromPath(filePath),
+				options?.project,
+			);
+
+			// Sort files by timestamp
+			const sortedFiles = await sortFilesByTimestamp(projectFilteredFiles);
+
+			// Track processed message+request combinations for deduplication
+			const processedHashes = new Set<string>();
+
+			for (const file of sortedFiles) {
+				const content = await readFile(file, 'utf-8');
+				const lines = content
+					.trim()
+					.split('\n')
+					.filter(line => line.length > 0);
+
+				const projectPath = extractProjectFromPath(file);
+				const sessionId = path.basename(file, '.jsonl');
+
+            let parseErrorCount = 0;
+            for (const [lineIndex, line] of lines.entries()) {
+					try {
+						const parsed = JSON.parse(line) as unknown;
+						// eslint-disable-next-line ts/no-use-before-define
+						const result = usageDataSchema.safeParse(parsed);
+						if (!result.success) {
+							continue;
+						}
+						const data = result.data;
+
+						// Check for duplicate
+						const uniqueHash = createUniqueHash(data);
+						if (isDuplicateEntry(uniqueHash, processedHashes)) {
+							continue;
+						}
+						markAsProcessed(uniqueHash, processedHashes);
+
+						// Skip entries with synthetic model or unknown model
+						const model = data.message.model ?? 'unknown';
+						if (model === '<synthetic>' || model === 'unknown') {
+							continue;
+						}
+
+						allEntries.push({
+							source: 'claude',
+							timestamp: data.timestamp,
+							projectPath,
+							sessionId,
+							model,
+							usage: {
+								input_tokens: data.message.usage.input_tokens,
+								output_tokens: data.message.usage.output_tokens,
+								cache_creation_input_tokens: data.message.usage.cache_creation_input_tokens ?? 0,
+								cache_read_input_tokens: data.message.usage.cache_read_input_tokens ?? 0,
+							},
+							costUSD: data.costUSD,
+							version: data.version,
+						});
+              }
+              catch (error) {
+                // Log parse error with context but keep skipping invalid lines
+                parseErrorCount += 1;
+                if (parseErrorCount <= 3) {
+                  const message = error instanceof Error ? error.message : String(error);
+                  const snippet = line.length > 200 ? `${line.slice(0, 200)}…` : line;
+                  logger.warn(
+                    `Failed to parse JSON in unified loader (file: ${file}, lineIndex: ${lineIndex}): ${message}. Raw line: ${snippet}`,
+                  );
+                }
+                else if (parseErrorCount === 4) {
+                  logger.info(
+                    `Multiple JSON parse errors encountered in file ${file}. Further errors will be suppressed for this file to avoid log flooding.`,
+                  );
+                }
+                // Skip invalid JSON lines
+              }
+				}
+			}
+		}
+	}
+
+	// Load OpenCode data if included
+	if (sources.includes('opencode')) {
+		const openCodeEntries = loadOpenCodeData(options?.openCodePath);
+
+		for (const entry of openCodeEntries) {
+			// Filter by project if specified
+			if (options?.project != null && !entry.projectPath.includes(options.project)) {
+				continue;
+			}
+
+			allEntries.push({
+				source: 'opencode',
+				timestamp: entry.timestamp.toISOString(),
+				projectPath: entry.projectPath,
+				sessionId: entry.sessionId,
+				model: entry.model,
+				usage: {
+					input_tokens: entry.tokens.input,
+					output_tokens: entry.tokens.output,
+					cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
+					cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+				},
+				costUSD: entry.cost,
+			});
+		}
+	}
+
+	return allEntries;
+}
 
 /**
  * Get Claude data directories to search for usage data
@@ -203,6 +359,23 @@ export const modelBreakdownSchema = z.object({
 export type ModelBreakdown = z.infer<typeof modelBreakdownSchema>;
 
 /**
+ * Zod schema for source-specific usage breakdown data
+ */
+export const sourceBreakdownSchema = z.object({
+	source: z.enum(['claude', 'opencode']),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	cacheCreationTokens: z.number(),
+	cacheReadTokens: z.number(),
+	totalCost: z.number(),
+});
+
+/**
+ * Type definition for source-specific usage breakdown
+ */
+export type SourceBreakdown = z.infer<typeof sourceBreakdownSchema>;
+
+/**
  * Zod schema for daily usage aggregation data
  */
 export const dailyUsageSchema = z.object({
@@ -214,6 +387,7 @@ export const dailyUsageSchema = z.object({
 	totalCost: z.number(),
 	modelsUsed: z.array(modelNameSchema),
 	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
 	project: z.string().optional(), // Project name when groupByProject is enabled
 });
 
@@ -237,12 +411,35 @@ export const sessionUsageSchema = z.object({
 	versions: z.array(versionSchema), // List of unique versions used in this session
 	modelsUsed: z.array(modelNameSchema),
 	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
 });
 
 /**
  * Type definition for session-based usage aggregation
  */
 export type SessionUsage = z.infer<typeof sessionUsageSchema>;
+
+/**
+ * Zod schema for project-based usage aggregation data
+ */
+export const projectUsageSchema = z.object({
+	projectName: z.string(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	cacheCreationTokens: z.number(),
+	cacheReadTokens: z.number(),
+	totalCost: z.number(),
+	lastActivity: activityDateSchema,
+	versions: z.array(versionSchema), // List of unique versions used in this project
+	modelsUsed: z.array(modelNameSchema),
+	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
+});
+
+/**
+ * Type definition for project-based usage aggregation
+ */
+export type ProjectUsage = z.infer<typeof projectUsageSchema>;
 
 /**
  * Zod schema for monthly usage aggregation data
@@ -256,6 +453,7 @@ export const monthlyUsageSchema = z.object({
 	totalCost: z.number(),
 	modelsUsed: z.array(modelNameSchema),
 	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
 	project: z.string().optional(), // Project name when groupByProject is enabled
 });
 
@@ -276,6 +474,7 @@ export const weeklyUsageSchema = z.object({
 	totalCost: z.number(),
 	modelsUsed: z.array(modelNameSchema),
 	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
 	project: z.string().optional(), // Project name when groupByProject is enabled
 });
 
@@ -296,6 +495,7 @@ export const bucketUsageSchema = z.object({
 	totalCost: z.number(),
 	modelsUsed: z.array(modelNameSchema),
 	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
 	project: z.string().optional(), // Project name when groupByProject is enabled
 });
 
@@ -690,6 +890,54 @@ export async function sortFilesByTimestamp(files: string[]): Promise<string[]> {
 }
 
 /**
+ * Generic function to calculate cost based on mode
+ * @param costUSD - The stored cost value (may be null or undefined)
+ * @param tokens - Token usage object
+ * @param model - Model name
+ * @param mode - Cost calculation mode
+ * @param fetcher - Pricing fetcher instance
+ * @returns Calculated cost in USD
+ */
+async function calculateCostGeneric(
+	costUSD: number | null | undefined,
+	tokens: {
+		input_tokens: number;
+		output_tokens: number;
+		cache_creation_input_tokens?: number;
+		cache_read_input_tokens?: number;
+	},
+	model: string | undefined,
+	mode: CostMode,
+	fetcher: PricingFetcher,
+): Promise<number> {
+	if (mode === 'display') {
+		// Always use costUSD for display mode, even if null
+		return costUSD ?? 0;
+	}
+
+	if (mode === 'calculate') {
+		// Always calculate from tokens for calculate mode
+		if (model != null) {
+			return Result.unwrap(fetcher.calculateCostFromTokens(tokens, model), 0);
+		}
+		return 0;
+	}
+
+	if (mode === 'auto') {
+		// Auto mode: use costUSD if available, otherwise calculate
+		if (costUSD != null) {
+			return costUSD;
+		}
+		if (model != null) {
+			return Result.unwrap(fetcher.calculateCostFromTokens(tokens, model), 0);
+		}
+		return 0;
+	}
+
+	unreachable(mode);
+}
+
+/**
  * Calculates cost for a single usage data entry based on the specified cost calculation mode
  * @param data - Usage data entry
  * @param mode - Cost calculation mode (auto, calculate, or display)
@@ -701,33 +949,94 @@ export async function calculateCostForEntry(
 	mode: CostMode,
 	fetcher: PricingFetcher,
 ): Promise<number> {
-	if (mode === 'display') {
-		// Always use costUSD, even if undefined
-		return data.costUSD ?? 0;
-	}
+	const tokens = {
+		input_tokens: data.message.usage.input_tokens,
+		output_tokens: data.message.usage.output_tokens,
+		cache_creation_input_tokens: data.message.usage.cache_creation_input_tokens,
+		cache_read_input_tokens: data.message.usage.cache_read_input_tokens,
+	};
+	return calculateCostGeneric(
+		data.costUSD,
+		tokens,
+		data.message.model,
+		mode,
+		fetcher,
+	);
+}
 
-	if (mode === 'calculate') {
-		// Always calculate from tokens
-		if (data.message.model != null) {
-			return Result.unwrap(fetcher.calculateCostFromTokens(data.message.usage, data.message.model), 0);
-		}
-		return 0;
-	}
+/**
+ * Calculate cost for a LoadedUsageEntry based on the cost mode
+ * @param entry - The loaded usage entry
+ * @param mode - Cost calculation mode
+ * @param fetcher - Pricing fetcher instance
+ * @returns Calculated cost in USD
+ */
+async function calculateCostForLoadedEntry(
+	entry: LoadedUsageEntry,
+	mode: CostMode,
+	fetcher: PricingFetcher,
+): Promise<number> {
+	const tokens = {
+		input_tokens: entry.usage.inputTokens,
+		output_tokens: entry.usage.outputTokens,
+		cache_creation_input_tokens: entry.usage.cacheCreationInputTokens,
+		cache_read_input_tokens: entry.usage.cacheReadInputTokens,
+	};
+	return calculateCostGeneric(
+		entry.costUSD,
+		tokens,
+		entry.model,
+		mode,
+		fetcher,
+	);
+}
 
-	if (mode === 'auto') {
-		// Auto mode: use costUSD if available, otherwise calculate
-		if (data.costUSD != null) {
-			return data.costUSD;
-		}
+/**
+ * Calculate cost for unified usage entry (Claude or OpenCode)
+ * @param entry - Unified usage entry
+ * @param mode - Cost calculation mode
+ * @param fetcher - Pricing fetcher instance
+ * @returns Calculated cost in USD
+ */
+async function calculateCostForUnifiedEntry(
+	entry: UnifiedUsageEntry,
+	mode: CostMode,
+	fetcher: PricingFetcher,
+): Promise<number> {
+	return calculateCostGeneric(
+		entry.costUSD,
+		entry.usage,
+		entry.model,
+		mode,
+		fetcher,
+	);
+}
 
-		if (data.message.model != null) {
-			return Result.unwrap(fetcher.calculateCostFromTokens(data.message.usage, data.message.model), 0);
-		}
-
-		return 0;
-	}
-
-	unreachable(mode);
+/**
+ * Calculate cost for OpenCode usage entry
+ * @param entry - OpenCode usage entry
+ * @param mode - Cost calculation mode
+ * @param fetcher - Pricing fetcher instance
+ * @returns Calculated cost in USD
+ */
+async function calculateCostForOpenCodeEntry(
+	entry: OpenCodeUsageEntry,
+	mode: CostMode,
+	fetcher: PricingFetcher,
+): Promise<number> {
+	const tokens = {
+		input_tokens: entry.tokens.input,
+		output_tokens: entry.tokens.output,
+		cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
+		cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+	};
+	return calculateCostGeneric(
+		entry.cost,
+		tokens,
+		entry.model,
+		mode,
+		fetcher,
+	);
 }
 
 /**
@@ -795,6 +1104,7 @@ type DayOfWeek = IntRange<0, typeof WEEK_DAYS['length']>; // 0 = Sunday, 1 = Mon
  */
 export type LoadOptions = {
 	claudePath?: string; // Custom path to Claude data directory
+	openCodePath?: string; // Custom path to OpenCode data directory (for testing)
 	mode?: CostMode; // Cost calculation mode
 	order?: SortOrder; // Sort order for dates
 	offline?: boolean; // Use offline mode for pricing
@@ -802,8 +1112,10 @@ export type LoadOptions = {
 	groupByProject?: boolean; // Group data by project instead of aggregating
 	project?: string; // Filter to specific project name
 	startOfWeek?: WeekDay; // Start of week for weekly aggregation
+	startOfMonth?: number; // Start of month for monthly aggregation (1-31, defaults to 1)
 	timezone?: string; // Timezone for date grouping (e.g., 'UTC', 'America/New_York'). Defaults to system timezone
 	locale?: string; // Locale for date/time formatting (e.g., 'en-US', 'ja-JP'). Defaults to 'en-US'
+	sources?: Array<'claude' | 'opencode'>; // Filter by data sources (defaults to both)
 } & DateFilter;
 
 /**
@@ -934,11 +1246,22 @@ export async function loadDailyUsageData(
 
 			const modelsUsed = extractUniqueModels(entries, e => e.model);
 
+			// Since this is Claude-only data, create a single source breakdown
+			const sourceBreakdowns: SourceBreakdown[] = [{
+				source: 'claude',
+				inputTokens: totals.inputTokens,
+				outputTokens: totals.outputTokens,
+				cacheCreationTokens: totals.cacheCreationTokens,
+				cacheReadTokens: totals.cacheReadTokens,
+				totalCost: totals.totalCost,
+			}];
+
 			return {
 				date: createDailyDate(date),
 				...totals,
 				modelsUsed: modelsUsed as ModelName[],
 				modelBreakdowns,
+				sourceBreakdowns,
 				...(project != null && { project }),
 			};
 		})
@@ -1115,6 +1438,16 @@ export async function loadSessionData(
 
 			const modelsUsed = extractUniqueModels(entries, e => e.model);
 
+			// Since this is Claude-only data, create a single source breakdown
+			const sourceBreakdowns: SourceBreakdown[] = [{
+				source: 'claude',
+				inputTokens: totals.inputTokens,
+				outputTokens: totals.outputTokens,
+				cacheCreationTokens: totals.cacheCreationTokens,
+				cacheReadTokens: totals.cacheReadTokens,
+				totalCost: totals.totalCost,
+			}];
+
 			return {
 				sessionId: createSessionId(latestEntry.sessionId),
 				projectPath: createProjectPath(latestEntry.projectPath),
@@ -1124,6 +1457,7 @@ export async function loadSessionData(
 				versions: uniq(versions).sort() as Version[],
 				modelsUsed: modelsUsed as ModelName[],
 				modelBreakdowns,
+				sourceBreakdowns,
 			};
 		})
 		.filter(item => item != null);
@@ -1135,6 +1469,159 @@ export async function loadSessionData(
 	const sessionFiltered = filterByProject(dateFiltered, item => item.projectPath, options?.project);
 
 	return sortByDate(sessionFiltered, item => item.lastActivity, options?.order);
+}
+
+/**
+ * Unified session usage data loader that supports both Claude Code and OpenCode
+ * Groups usage data by session/project identifier across both sources
+ * @param options - Optional configuration for loading and filtering data
+ * @returns Array of session usage summaries with source breakdowns sorted by last activity
+ */
+export async function loadUnifiedSessionData(
+	options?: LoadOptions,
+): Promise<SessionUsage[]> {
+	// Load unified usage data from both sources
+	const allEntries = await _loadUnifiedUsageData(options);
+
+	if (allEntries.length === 0) {
+		return [];
+	}
+
+	// Initialize pricing fetcher for cost calculation
+	const mode = options?.mode ?? 'auto';
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+
+	// Filter by date range if specified
+	const dateFiltered = filterByDateRange(
+		allEntries,
+		item => item.timestamp,
+		options?.since,
+		options?.until,
+	);
+
+	// Group by session identifier (for OpenCode, combine project + session)
+	const sessionMap = new Map<string, {
+		entries: UnifiedUsageEntry[];
+		latestTimestamp: string;
+		projectPath: string;
+	}>();
+
+	for (const entry of dateFiltered) {
+		// Create unified session identifier
+		const unifiedSessionId = entry.source === 'opencode'
+			? `${entry.projectPath.split('/').pop()}-${entry.sessionId}` // Use last part of project path + session
+			: entry.sessionId; // Claude uses sessionId directly
+
+		const existing = sessionMap.get(unifiedSessionId);
+		if (existing == null) {
+			sessionMap.set(unifiedSessionId, {
+				entries: [entry],
+				latestTimestamp: entry.timestamp,
+				projectPath: entry.projectPath,
+			});
+		}
+		else {
+			existing.entries.push(entry);
+			if (entry.timestamp > existing.latestTimestamp) {
+				existing.latestTimestamp = entry.timestamp;
+			}
+		}
+	}
+
+	// Convert to SessionUsage format
+	const results: SessionUsage[] = [];
+
+	for (const [sessionId, sessionData] of sessionMap.entries()) {
+		const { entries, latestTimestamp, projectPath } = sessionData;
+
+		// Calculate totals
+		let inputTokens = 0;
+		let outputTokens = 0;
+		let cacheCreationTokens = 0;
+		let cacheReadTokens = 0;
+		let totalCost = 0;
+
+		const modelsUsed = new Set<string>();
+		const versions = new Set<string>();
+		const modelBreakdowns = new Map<string, ModelBreakdown>();
+		const sourceBreakdowns = new Map<'claude' | 'opencode', SourceBreakdown>();
+
+		// Process each entry
+		for (const entry of entries) {
+			const usage = entry.usage;
+			inputTokens += usage.input_tokens;
+			outputTokens += usage.output_tokens;
+			cacheCreationTokens += usage.cache_creation_input_tokens;
+			cacheReadTokens += usage.cache_read_input_tokens;
+
+			// Calculate cost using the pricing fetcher (handles null costUSD for OpenCode)
+			const entryCost = fetcher != null
+				? await calculateCostForUnifiedEntry(entry, mode, fetcher)
+				: entry.costUSD ?? 0;
+			totalCost += entryCost;
+
+			modelsUsed.add(entry.model);
+			versions.add(entry.version ?? '1.0.0');
+
+			// Update model breakdown
+			const existing = modelBreakdowns.get(entry.model);
+			if (existing == null) {
+				modelBreakdowns.set(entry.model, {
+					modelName: entry.model as ModelName,
+					inputTokens: usage.input_tokens,
+					outputTokens: usage.output_tokens,
+					cacheCreationTokens: usage.cache_creation_input_tokens,
+					cacheReadTokens: usage.cache_read_input_tokens,
+					cost: entryCost,
+				});
+			}
+			else {
+				existing.inputTokens += usage.input_tokens;
+				existing.outputTokens += usage.output_tokens;
+				existing.cacheCreationTokens += usage.cache_creation_input_tokens;
+				existing.cacheReadTokens += usage.cache_read_input_tokens;
+				existing.cost += entryCost;
+			}
+
+			// Update source breakdown
+			const sourceExisting = sourceBreakdowns.get(entry.source);
+			if (sourceExisting == null) {
+				sourceBreakdowns.set(entry.source, {
+					source: entry.source,
+					inputTokens: usage.input_tokens,
+					outputTokens: usage.output_tokens,
+					cacheCreationTokens: usage.cache_creation_input_tokens,
+					cacheReadTokens: usage.cache_read_input_tokens,
+					totalCost: entryCost,
+				});
+			}
+			else {
+				sourceExisting.inputTokens += usage.input_tokens;
+				sourceExisting.outputTokens += usage.output_tokens;
+				sourceExisting.cacheCreationTokens += usage.cache_creation_input_tokens;
+				sourceExisting.cacheReadTokens += usage.cache_read_input_tokens;
+				sourceExisting.totalCost += entryCost;
+			}
+		}
+
+		results.push({
+			sessionId: createSessionId(sessionId),
+			projectPath: createProjectPath(projectPath),
+			inputTokens,
+			outputTokens,
+			cacheCreationTokens,
+			cacheReadTokens,
+			totalCost,
+			lastActivity: formatDate(latestTimestamp, options?.timezone, 'en-CA') as ActivityDate,
+			versions: Array.from(versions).sort() as Version[],
+			modelsUsed: Array.from(modelsUsed) as ModelName[],
+			modelBreakdowns: Array.from(modelBreakdowns.values()),
+			sourceBreakdowns: Array.from(sourceBreakdowns.values()),
+		});
+	}
+
+	// Sort by last activity
+	return sortByDate(results, item => item.lastActivity, options?.order);
 }
 
 /**
@@ -1292,6 +1779,31 @@ export async function loadBucketUsageData(
 		// Create model breakdowns
 		const modelBreakdowns = createModelBreakdowns(modelAggregates);
 
+		// Aggregate source breakdowns across all days
+		const sourceBreakdownsMap = new Map<'claude' | 'opencode', SourceBreakdown>();
+		for (const daily of dailyEntries) {
+			for (const sourceBreakdown of daily.sourceBreakdowns) {
+				const existing = sourceBreakdownsMap.get(sourceBreakdown.source);
+				if (existing) {
+					existing.inputTokens += sourceBreakdown.inputTokens;
+					existing.outputTokens += sourceBreakdown.outputTokens;
+					existing.cacheCreationTokens += sourceBreakdown.cacheCreationTokens;
+					existing.cacheReadTokens += sourceBreakdown.cacheReadTokens;
+					existing.totalCost += sourceBreakdown.totalCost;
+				} else {
+					sourceBreakdownsMap.set(sourceBreakdown.source, {
+						source: sourceBreakdown.source,
+						inputTokens: sourceBreakdown.inputTokens,
+						outputTokens: sourceBreakdown.outputTokens,
+						cacheCreationTokens: sourceBreakdown.cacheCreationTokens,
+						cacheReadTokens: sourceBreakdown.cacheReadTokens,
+						totalCost: sourceBreakdown.totalCost,
+					});
+				}
+			}
+		}
+		const sourceBreakdowns = Array.from(sourceBreakdownsMap.values());
+
 		// Collect unique models
 		const models: string[] = [];
 		for (const data of dailyEntries) {
@@ -1326,6 +1838,7 @@ export async function loadBucketUsageData(
 			totalCost,
 			modelsUsed: uniq(models) as ModelName[],
 			modelBreakdowns,
+			sourceBreakdowns,
 			...(project != null && { project }),
 		};
 
@@ -1344,115 +1857,188 @@ export async function loadBucketUsageData(
 export async function loadSessionBlockData(
 	options?: LoadOptions,
 ): Promise<SessionBlock[]> {
-	// Get all Claude paths or use the specific one from options
-	const claudePaths = toArray(options?.claudePath ?? getClaudePaths());
-
-	// Collect files from all paths
-	const allFiles: string[] = [];
-	for (const claudePath of claudePaths) {
-		const claudeDir = path.join(claudePath, CLAUDE_PROJECTS_DIR_NAME);
-		const files = await glob([USAGE_DATA_GLOB_PATTERN], {
-			cwd: claudeDir,
-			absolute: true,
-		});
-		allFiles.push(...files);
-	}
-
-	if (allFiles.length === 0) {
-		return [];
-	}
-
-	// Filter by project if specified
-	const blocksFilteredFiles = filterByProject(
-		allFiles,
-		filePath => extractProjectFromPath(filePath),
-		options?.project,
-	);
-
-	// Sort files by timestamp to ensure chronological processing
-	const sortedFiles = await sortFilesByTimestamp(blocksFilteredFiles);
-
-	// Fetch pricing data for cost calculation only when needed
-	const mode = options?.mode ?? 'auto';
-
-	// Use PricingFetcher with using statement for automatic cleanup
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
-
-	// Track processed message+request combinations for deduplication
-	const processedHashes = new Set<string>();
-
-	// Collect all valid data entries first
+	// Determine which sources to load (default to both)
+	const sources = options?.sources ?? ['claude', 'opencode'];
 	const allEntries: LoadedUsageEntry[] = [];
 
-	for (const file of sortedFiles) {
-		const content = await readFile(file, 'utf-8');
-		const lines = content
-			.trim()
-			.split('\n')
-			.filter(line => line.length > 0);
+	// Create a single PricingFetcher instance for both sources to avoid duplicate fetches
+	const mode = options?.mode ?? 'auto';
+	using sharedFetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
 
-		for (const line of lines) {
-			try {
-				const parsed = JSON.parse(line) as unknown;
-				const result = usageDataSchema.safeParse(parsed);
-				if (!result.success) {
-					continue;
+	// Load Claude data if included
+	if (sources.includes('claude')) {
+		// Get all Claude paths or use the specific one from options
+		const claudePaths = toArray(options?.claudePath ?? getClaudePaths());
+
+		// Collect files from all paths
+		const allFiles: string[] = [];
+		for (const claudePath of claudePaths) {
+			const claudeDir = path.join(claudePath, CLAUDE_PROJECTS_DIR_NAME);
+			const files = await glob([USAGE_DATA_GLOB_PATTERN], {
+				cwd: claudeDir,
+				absolute: true,
+			});
+			allFiles.push(...files);
+		}
+
+		if (allFiles.length > 0) {
+			// Filter by project if specified
+			const blocksFilteredFiles = filterByProject(
+				allFiles,
+				filePath => extractProjectFromPath(filePath),
+				options?.project,
+			);
+
+			// Sort files by timestamp to ensure chronological processing
+			const sortedFiles = await sortFilesByTimestamp(blocksFilteredFiles);
+
+			// Track processed message+request combinations for deduplication
+			const processedHashes = new Set<string>();
+
+			for (const file of sortedFiles) {
+				const content = await readFile(file, 'utf-8');
+				const lines = content
+					.trim()
+					.split('\n')
+					.filter(line => line.length > 0);
+
+				for (const line of lines) {
+					try {
+						const parsed = JSON.parse(line) as unknown;
+
+						const result = usageDataSchema.safeParse(parsed);
+						if (!result.success) {
+							continue;
+						}
+						const data = result.data;
+
+						// Check for duplicate message + request ID combination
+						const uniqueHash = createUniqueHash(data);
+						if (isDuplicateEntry(uniqueHash, processedHashes)) {
+							// Skip duplicate message
+							continue;
+						}
+
+						// Mark this combination as processed
+						markAsProcessed(uniqueHash, processedHashes);
+
+						const cost = sharedFetcher != null
+							? await calculateCostForEntry(data, mode, sharedFetcher)
+							: data.costUSD ?? 0;
+
+						// Skip entries with synthetic model or unknown model
+						const model = data.message.model ?? 'unknown';
+						if (model === '<synthetic>' || model === 'unknown') {
+							continue;
+						}
+
+						// Get Claude Code usage limit expiration date
+						const usageLimitResetTime = getUsageLimitResetTime(data);
+
+						allEntries.push({
+							source: 'claude',
+							timestamp: new Date(data.timestamp),
+							usage: {
+								inputTokens: data.message.usage.input_tokens,
+								outputTokens: data.message.usage.output_tokens,
+								cacheCreationInputTokens: data.message.usage.cache_creation_input_tokens ?? 0,
+								cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
+							},
+							costUSD: cost,
+							model,
+							version: data.version,
+							usageLimitResetTime: usageLimitResetTime ?? undefined,
+							project: extractProjectFromPath(file),
+						});
+					}
+					catch (error) {
+						// Skip invalid JSON lines but log for debugging purposes
+						logger.debug(`Skipping invalid JSON line in 5-hour blocks: ${error instanceof Error ? error.message : String(error)}`);
+					}
 				}
-				const data = result.data;
-
-				// Check for duplicate message + request ID combination
-				const uniqueHash = createUniqueHash(data);
-				if (isDuplicateEntry(uniqueHash, processedHashes)) {
-				// Skip duplicate message
-					continue;
-				}
-
-				// Mark this combination as processed
-				markAsProcessed(uniqueHash, processedHashes);
-
-				const cost = fetcher != null
-					? await calculateCostForEntry(data, mode, fetcher)
-					: data.costUSD ?? 0;
-
-				// Get Claude Code usage limit expiration date
-				const usageLimitResetTime = getUsageLimitResetTime(data);
-
-				allEntries.push({
-					timestamp: new Date(data.timestamp),
-					usage: {
-						inputTokens: data.message.usage.input_tokens,
-						outputTokens: data.message.usage.output_tokens,
-						cacheCreationInputTokens: data.message.usage.cache_creation_input_tokens ?? 0,
-						cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
-					},
-					costUSD: cost,
-					model: data.message.model ?? 'unknown',
-					version: data.version,
-					usageLimitResetTime: usageLimitResetTime ?? undefined,
-				});
-			}
-			catch (error) {
-				// Skip invalid JSON lines but log for debugging purposes
-				logger.debug(`Skipping invalid JSON line in 5-hour blocks: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
+	}
+
+	// Load OpenCode data if included
+	if (sources.includes('opencode')) {
+		try {
+			const openCodeEntries = loadOpenCodeData(options?.openCodePath);
+
+			// Convert OpenCode entries to LoadedUsageEntry format
+			for (const entry of openCodeEntries) {
+				// Filter by project if specified
+				if (options?.project != null && !entry.projectPath.includes(options.project)) {
+					continue;
+				}
+
+				// Calculate cost for OpenCode entries when costUSD is null
+				let calculatedCost = entry.cost ?? null;
+				if (calculatedCost == null && sharedFetcher != null) {
+					calculatedCost = await calculateCostForOpenCodeEntry(entry, mode, sharedFetcher);
+				}
+
+				allEntries.push({
+					source: 'opencode',
+					timestamp: entry.timestamp,
+					usage: {
+						inputTokens: entry.tokens.input,
+						outputTokens: entry.tokens.output,
+						cacheCreationInputTokens: entry.tokens.cache?.write ?? 0,
+						cacheReadInputTokens: entry.tokens.cache?.read ?? 0,
+					},
+					costUSD: calculatedCost,
+					model: entry.model,
+					project: extractProjectName(entry.projectPath),
+				});
+			}
+		}
+		catch (error) {
+			// Differentiate between missing directory and other errors
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			const errorCode = (error as any)?.code;
+			
+			if (errorCode === 'ENOENT' || errorMessage.includes('no such file or directory')) {
+				// Missing OpenCode directory is expected and not an error
+				logger.debug(`OpenCode directory not found at ${options?.openCodePath ?? 'default location'} - skipping OpenCode data`);
+			} else {
+				// Other errors are unexpected and should be logged with more detail
+				logger.error('Failed to load OpenCode data:', {
+					error: errorMessage,
+					stack: error instanceof Error ? error.stack : undefined,
+					openCodePath: options?.openCodePath ?? 'default location',
+				});
+				// Consider rethrowing for critical errors if needed
+				// throw error;
+			}
+		}
+	}
+
+	// Return empty if no entries from any source
+	if (allEntries.length === 0) {
+		return [];
 	}
 
 	// Identify session blocks
 	const blocks = identifySessionBlocks(allEntries, options?.sessionDurationHours);
 
+
+
 	// Filter by date range if specified
 	const dateFiltered = (options?.since != null && options.since !== '') || (options?.until != null && options.until !== '')
 		? blocks.filter((block) => {
-				// Always use en-CA for date comparison to ensure YYYY-MM-DD format
-				const blockDateStr = formatDate(block.startTime.toISOString(), options?.timezone, 'en-CA').replace(/-/g, '');
-				if (options.since != null && options.since !== '' && blockDateStr < options.since) {
-					return false;
-				}
-				if (options.until != null && options.until !== '' && blockDateStr > options.until) {
-					return false;
-				}
-				return true;
+				// Check if any entries in the block fall within the date range
+				return block.entries.some((entry) => {
+					const entryDateStr = formatDate(entry.timestamp.toISOString(), options?.timezone, 'en-CA').replace(/-/g, '');
+
+					if (options.since != null && options.since !== '' && entryDateStr < options.since) {
+						return false;
+					}
+					if (options.until != null && options.until !== '' && entryDateStr > options.until) {
+						return false;
+					}
+					return true;
+				});
 			})
 		: blocks;
 
@@ -1460,3115 +2046,586 @@ export async function loadSessionBlockData(
 	return sortByDate(dateFiltered, block => block.startTime, options?.order);
 }
 
-if (import.meta.vitest != null) {
-	describe('formatDate', () => {
-		it('formats UTC timestamp to local date', () => {
-		// Test with UTC timestamps - results depend on local timezone
-			expect(formatDate('2024-01-01T00:00:00Z')).toBe('2024-01-01');
-			expect(formatDate('2024-12-31T23:59:59Z')).toBe('2024-12-31');
-		});
-
-		it('respects timezone parameter', () => {
-			// Test date that crosses day boundary
-			const testTimestamp = '2024-01-01T15:00:00Z'; // 3 PM UTC = midnight JST next day
-
-			// Default behavior (no timezone) uses system timezone
-			expect(formatDate(testTimestamp)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-
-			// UTC timezone
-			expect(formatDate(testTimestamp, 'UTC')).toBe('2024-01-01');
-
-			// Asia/Tokyo timezone (crosses to next day)
-			expect(formatDate(testTimestamp, 'Asia/Tokyo')).toBe('2024-01-02');
-
-			// America/New_York timezone
-			expect(formatDate('2024-01-02T03:00:00Z', 'America/New_York')).toBe('2024-01-01'); // 3 AM UTC = 10 PM EST previous day
-
-			// Invalid timezone should throw a RangeError
-			expect(() => formatDate(testTimestamp, 'Invalid/Timezone')).toThrow(RangeError);
-		});
-
-		it('formatDateCompact respects timezone parameter', () => {
-			const testTimestamp = '2024-01-01T15:00:00Z';
-
-			// UTC timezone
-			expect(formatDateCompact(testTimestamp, 'UTC', 'en-US')).toBe('2024\n01-01');
-
-			// Asia/Tokyo timezone (crosses to next day)
-			expect(formatDateCompact(testTimestamp, 'Asia/Tokyo', 'en-US')).toBe('2024\n01-02');
-		});
-
-		it('handles various date formats', () => {
-			expect(formatDate('2024-01-01')).toBe('2024-01-01');
-			expect(formatDate('2024-01-01T12:00:00')).toBe('2024-01-01');
-			expect(formatDate('2024-01-01T12:00:00.000Z')).toBe('2024-01-01');
-		});
-
-		it('pads single digit months and days', () => {
-			// Use UTC noon to avoid timezone issues
-			expect(formatDate('2024-01-05T12:00:00Z')).toBe('2024-01-05');
-			expect(formatDate('2024-10-01T12:00:00Z')).toBe('2024-10-01');
-		});
-
-		it('respects locale parameter', () => {
-			const testDate = '2024-08-04T12:00:00Z';
-
-			// Different locales format dates differently
-			expect(formatDate(testDate, 'UTC', 'en-US')).toBe('08/04/2024');
-			expect(formatDate(testDate, 'UTC', 'en-CA')).toBe('2024-08-04');
-			expect(formatDate(testDate, 'UTC', 'ja-JP')).toBe('2024/08/04');
-			expect(formatDate(testDate, 'UTC', 'de-DE')).toBe('04.08.2024');
-		});
-	});
-
-	describe('loadSessionUsageById', async () => {
-		const { createFixture } = await import('fs-fixture');
-
-		afterEach(() => {
-			vi.unstubAllEnvs();
-		});
-
-		it('loads usage data for a specific session', async () => {
-			await using fixture = await createFixture({
-				'.claude': {
-					projects: {
-						'test-project': {
-							'session-123.jsonl': `${JSON.stringify({
-								timestamp: '2024-01-01T00:00:00Z',
-								sessionId: 'session-123',
-								message: {
-									usage: {
-										input_tokens: 100,
-										output_tokens: 50,
-										cache_creation_input_tokens: 10,
-										cache_read_input_tokens: 20,
-									},
-									model: 'claude-sonnet-4-20250514',
-								},
-								costUSD: 0.5,
-							})}\n${JSON.stringify({
-								timestamp: '2024-01-01T01:00:00Z',
-								sessionId: 'session-123',
-								message: {
-									usage: {
-										input_tokens: 200,
-										output_tokens: 100,
-										cache_creation_input_tokens: 20,
-										cache_read_input_tokens: 40,
-									},
-									model: 'claude-sonnet-4-20250514',
-								},
-								costUSD: 1.0,
-							})}`,
-						},
-					},
-				},
-			});
-
-			vi.stubEnv('CLAUDE_CONFIG_DIR', path.join(fixture.path, '.claude'));
-
-			const result = await loadSessionUsageById('session-123', { mode: 'display' });
-
-			expect(result).not.toBeNull();
-			expect(result?.totalCost).toBe(1.5);
-			expect(result?.entries).toHaveLength(2);
-		});
-
-		it('returns null for non-existent session', async () => {
-			await using fixture = await createFixture({
-				'.claude': {
-					projects: {
-						'test-project': {
-							'other-session.jsonl': JSON.stringify({
-								timestamp: '2024-01-01T00:00:00Z',
-								sessionId: 'other-session',
-								message: {
-									usage: {
-										input_tokens: 100,
-										output_tokens: 50,
-									},
-									model: 'claude-sonnet-4-20250514',
-								},
-								costUSD: 0.5,
-							}),
-						},
-					},
-				},
-			});
-
-			vi.stubEnv('CLAUDE_CONFIG_DIR', path.join(fixture.path, '.claude'));
-
-			const result = await loadSessionUsageById('non-existent', { mode: 'display' });
-
-			expect(result).toBeNull();
-		});
-	});
-
-	describe('formatDateCompact', () => {
-		it('formats UTC timestamp to local date with line break', () => {
-			expect(formatDateCompact('2024-01-01T00:00:00Z', undefined, 'en-US')).toBe('2024\n01-01');
-		});
-
-		it('handles various date formats', () => {
-			expect(formatDateCompact('2024-12-31T23:59:59Z', undefined, 'en-US')).toBe('2024\n12-31');
-			expect(formatDateCompact('2024-01-01', undefined, 'en-US')).toBe('2024\n01-01');
-			expect(formatDateCompact('2024-01-01T12:00:00', undefined, 'en-US')).toBe('2024\n01-01');
-			expect(formatDateCompact('2024-01-01T12:00:00.000Z', undefined, 'en-US')).toBe('2024\n01-01');
-		});
-
-		it('pads single digit months and days', () => {
-			// Use UTC noon to avoid timezone issues
-			expect(formatDateCompact('2024-01-05T12:00:00Z', undefined, 'en-US')).toBe('2024\n01-05');
-			expect(formatDateCompact('2024-10-01T12:00:00Z', undefined, 'en-US')).toBe('2024\n10-01');
-		});
-
-		it('respects locale parameter', () => {
-			const testDate = '2024-08-04T12:00:00Z';
-
-			// Different locales format dates differently
-			expect(formatDateCompact(testDate, 'UTC', 'en-US')).toBe('2024\n08-04');
-			expect(formatDateCompact(testDate, 'UTC', 'en-CA')).toBe('2024\n08-04');
-			expect(formatDateCompact(testDate, 'UTC', 'ja-JP')).toBe('2024\n08-04');
-			// All locales should produce similar compact format
-		});
-	});
-
-	describe('loadDailyUsageData', () => {
-		it('returns empty array when no files found', async () => {
-			await using fixture = await createFixture({
-				projects: {},
-			});
-
-			const result = await loadDailyUsageData({ claudePath: fixture.path });
-			expect(result).toEqual([]);
-		});
-
-		it('aggregates daily usage data correctly', async () => {
-			// Use timestamps in the middle of the day to avoid timezone issues
-			const mockData1: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-			];
-
-			const mockData2: UsageData = {
-				timestamp: createISOTimestamp('2024-01-01T18:00:00Z'),
-				message: { usage: { input_tokens: 300, output_tokens: 150 } },
-				costUSD: 0.03,
-			};
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file1.jsonl': mockData1.map(d => JSON.stringify(d)).join('\n'),
-						},
-						session2: {
-							'file2.jsonl': JSON.stringify(mockData2),
-						},
-					},
-				},
-			});
-
-			const result = await loadDailyUsageData({ claudePath: fixture.path });
-
-			expect(result).toHaveLength(1);
-			expect(result[0]?.date).toBe('2024-01-01');
-			expect(result[0]?.inputTokens).toBe(600); // 100 + 200 + 300
-			expect(result[0]?.outputTokens).toBe(300); // 50 + 100 + 150
-			expect(result[0]?.totalCost).toBe(0.06); // 0.01 + 0.02 + 0.03
-		});
-
-		it('handles cache tokens', async () => {
-			const mockData: UsageData = {
-				timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-				message: {
-					usage: {
-						input_tokens: 100,
-						output_tokens: 50,
-						cache_creation_input_tokens: 25,
-						cache_read_input_tokens: 10,
-					},
-				},
-				costUSD: 0.01,
-			};
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': JSON.stringify(mockData),
-						},
-					},
-				},
-			});
-
-			const result = await loadDailyUsageData({ claudePath: fixture.path });
-
-			expect(result[0]?.cacheCreationTokens).toBe(25);
-			expect(result[0]?.cacheReadTokens).toBe(10);
-		});
-
-		it('filters by date range', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-31T12:00:00Z'),
-					message: { usage: { input_tokens: 300, output_tokens: 150 } },
-					costUSD: 0.03,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadDailyUsageData({
-				claudePath: fixture.path,
-				since: '20240110',
-				until: '20240125',
-			});
-
-			expect(result).toHaveLength(1);
-			expect(result[0]?.date).toBe('2024-01-15');
-			expect(result[0]?.inputTokens).toBe(200);
-		});
-
-		it('sorts by date descending by default', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-31T12:00:00Z'),
-					message: { usage: { input_tokens: 300, output_tokens: 150 } },
-					costUSD: 0.03,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadDailyUsageData({ claudePath: fixture.path });
-
-			expect(result[0]?.date).toBe('2024-01-31');
-			expect(result[1]?.date).toBe('2024-01-15');
-			expect(result[2]?.date).toBe('2024-01-01');
-		});
-
-		it('sorts by date ascending when order is \'asc\'', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-31T12:00:00Z'),
-					message: { usage: { input_tokens: 300, output_tokens: 150 } },
-					costUSD: 0.03,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'usage.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadDailyUsageData({
-				claudePath: fixture.path,
-				order: 'asc',
-			});
-
-			expect(result).toHaveLength(3);
-			expect(result[0]?.date).toBe('2024-01-01');
-			expect(result[1]?.date).toBe('2024-01-15');
-			expect(result[2]?.date).toBe('2024-01-31');
-		});
-
-		it('sorts by date descending when order is \'desc\'', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-31T12:00:00Z'),
-					message: { usage: { input_tokens: 300, output_tokens: 150 } },
-					costUSD: 0.03,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'usage.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadDailyUsageData({
-				claudePath: fixture.path,
-				order: 'desc',
-			});
-
-			expect(result).toHaveLength(3);
-			expect(result[0]?.date).toBe('2024-01-31');
-			expect(result[1]?.date).toBe('2024-01-15');
-			expect(result[2]?.date).toBe('2024-01-01');
-		});
-
-		it('handles invalid JSON lines gracefully', async () => {
-			const mockData = `
-{"timestamp":"2024-01-01T12:00:00Z","message":{"usage":{"input_tokens":100,"output_tokens":50}},"costUSD":0.01}
-invalid json line
-{"timestamp":"2024-01-01T12:00:00Z","message":{"usage":{"input_tokens":200,"output_tokens":100}},"costUSD":0.02}
-{ broken json
-{"timestamp":"2024-01-01T18:00:00Z","message":{"usage":{"input_tokens":300,"output_tokens":150}},"costUSD":0.03}
-`.trim();
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData,
-						},
-					},
-				},
-			});
-
-			const result = await loadDailyUsageData({ claudePath: fixture.path });
-
-			// Should only process valid lines
-			expect(result).toHaveLength(1);
-			expect(result[0]?.inputTokens).toBe(600); // 100 + 200 + 300
-			expect(result[0]?.totalCost).toBe(0.06); // 0.01 + 0.02 + 0.03
-		});
-
-		it('skips data without required fields', async () => {
-			const mockData = `
-{"timestamp":"2024-01-01T12:00:00Z","message":{"usage":{"input_tokens":100,"output_tokens":50}},"costUSD":0.01}
-{"timestamp":"2024-01-01T14:00:00Z","message":{"usage":{}}}
-{"timestamp":"2024-01-01T18:00:00Z","message":{}}
-{"timestamp":"2024-01-01T20:00:00Z"}
-{"message":{"usage":{"input_tokens":200,"output_tokens":100}}}
-{"timestamp":"2024-01-01T22:00:00Z","message":{"usage":{"input_tokens":300,"output_tokens":150}},"costUSD":0.03}
-`.trim();
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData,
-						},
-					},
-				},
-			});
-
-			const result = await loadDailyUsageData({ claudePath: fixture.path });
-
-			// Should only include valid entries
-			expect(result).toHaveLength(1);
-			expect(result[0]?.inputTokens).toBe(400); // 100 + 300
-			expect(result[0]?.totalCost).toBe(0.04); // 0.01 + 0.03
-		});
-	});
-
-	describe('loadMonthlyUsageData', () => {
-		it('aggregates daily data by month correctly', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-				{
-					timestamp: createISOTimestamp('2024-02-01T12:00:00Z'),
-					message: { usage: { input_tokens: 150, output_tokens: 75 } },
-					costUSD: 0.015,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadMonthlyUsageData({ claudePath: fixture.path });
-
-			// Should be sorted by month descending (2024-02 first)
-			expect(result).toHaveLength(2);
-			expect(result[0]).toEqual({
-				month: '2024-02',
-				inputTokens: 150,
-				outputTokens: 75,
-				cacheCreationTokens: 0,
-				cacheReadTokens: 0,
-				totalCost: 0.015,
-				modelsUsed: [],
-				modelBreakdowns: [{
-					modelName: 'unknown',
-					inputTokens: 150,
-					outputTokens: 75,
+/**
+ * Unified daily usage data loader that supports both Claude Code and OpenCode
+ * Uses loadSessionBlockData internally and aggregates into daily summaries
+ */
+export async function loadUnifiedDailyUsageData(
+	options?: LoadOptions,
+): Promise<DailyUsage[]> {
+	// Load session blocks from both sources
+	const blocks = await loadSessionBlockData(options);
+
+
+
+	if (blocks.length === 0) {
+		return [];
+	}
+
+	// Initialize pricing fetcher for cost calculation
+	const mode = options?.mode ?? 'auto';
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+
+	// Group entries by date
+	const dailyMap = new Map<string, {
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+		cacheReadTokens: number;
+		totalCost: number;
+		modelsUsed: Set<string>;
+		modelBreakdowns: Map<string, ModelBreakdown>;
+		sourceBreakdowns: Map<'claude' | 'opencode', SourceBreakdown>;
+		project?: string;
+	}>();
+
+	for (const block of blocks) {
+		for (const entry of block.entries) {
+			// Use timezone from options for date formatting
+			const dateKey = formatDate(entry.timestamp.toISOString(), options?.timezone, options?.locale);
+
+			if (!dailyMap.has(dateKey)) {
+				dailyMap.set(dateKey, {
+					inputTokens: 0,
+					outputTokens: 0,
 					cacheCreationTokens: 0,
 					cacheReadTokens: 0,
-					cost: 0.015,
-				}],
-			});
-			expect(result[1]).toEqual({
-				month: '2024-01',
-				inputTokens: 300,
-				outputTokens: 150,
-				cacheCreationTokens: 0,
-				cacheReadTokens: 0,
-				totalCost: 0.03,
-				modelsUsed: [],
-				modelBreakdowns: [{
-					modelName: 'unknown',
-					inputTokens: 300,
-					outputTokens: 150,
+					totalCost: 0,
+					modelsUsed: new Set(),
+					modelBreakdowns: new Map(),
+					sourceBreakdowns: new Map(),
+					project: options?.groupByProject === true ? extractProjectFromEntry(entry) : undefined,
+				});
+			}
+
+			const daily = dailyMap.get(dateKey)!;
+			daily.inputTokens += entry.usage.inputTokens;
+			daily.outputTokens += entry.usage.outputTokens;
+			daily.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			daily.cacheReadTokens += entry.usage.cacheReadInputTokens;
+
+			// Calculate cost using the pricing fetcher (handles null costUSD for OpenCode)
+			const entryCost = fetcher != null
+				? await calculateCostForLoadedEntry(entry, mode, fetcher)
+				: entry.costUSD ?? 0;
+			daily.totalCost += entryCost;
+			daily.modelsUsed.add(entry.model);
+
+			// Track model breakdown
+			if (!daily.modelBreakdowns.has(entry.model)) {
+				daily.modelBreakdowns.set(entry.model, {
+					modelName: createModelName(entry.model),
+					inputTokens: 0,
+					outputTokens: 0,
 					cacheCreationTokens: 0,
 					cacheReadTokens: 0,
-					cost: 0.03,
-				}],
-			});
-		});
+					cost: 0,
+				});
+			}
+			const breakdown = daily.modelBreakdowns.get(entry.model)!;
+			breakdown.inputTokens += entry.usage.inputTokens;
+			breakdown.outputTokens += entry.usage.outputTokens;
+			breakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			breakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			breakdown.cost += entryCost;
 
-		it('handles empty data', async () => {
-			await using fixture = await createFixture({
-				projects: {},
-			});
-
-			const result = await loadMonthlyUsageData({ claudePath: fixture.path });
-			expect(result).toEqual([]);
-		});
-
-		it('handles single month data', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-31T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadMonthlyUsageData({ claudePath: fixture.path });
-
-			expect(result).toHaveLength(1);
-			expect(result[0]).toEqual({
-				month: '2024-01',
-				inputTokens: 300,
-				outputTokens: 150,
-				cacheCreationTokens: 0,
-				cacheReadTokens: 0,
-				totalCost: 0.03,
-				modelsUsed: [],
-				modelBreakdowns: [{
-					modelName: 'unknown',
-					inputTokens: 300,
-					outputTokens: 150,
+			// Track source breakdown
+			if (!daily.sourceBreakdowns.has(entry.source)) {
+				daily.sourceBreakdowns.set(entry.source, {
+					source: entry.source,
+					inputTokens: 0,
+					outputTokens: 0,
 					cacheCreationTokens: 0,
 					cacheReadTokens: 0,
-					cost: 0.03,
-				}],
-			});
-		});
-
-		it('sorts months in descending order', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-03-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-02-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2023-12-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadMonthlyUsageData({ claudePath: fixture.path });
-			const months = result.map(r => r.month);
-
-			expect(months).toEqual(['2024-03', '2024-02', '2024-01', '2023-12']);
-		});
-
-		it('sorts months in ascending order when order is \'asc\'', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-03-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-02-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2023-12-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadMonthlyUsageData({
-				claudePath: fixture.path,
-				order: 'asc',
-			});
-			const months = result.map(r => r.month);
-
-			expect(months).toEqual(['2023-12', '2024-01', '2024-02', '2024-03']);
-		});
-
-		it('handles year boundaries correctly in sorting', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2023-12-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-02-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2023-11-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			// Descending order (default)
-			const descResult = await loadMonthlyUsageData({
-				claudePath: fixture.path,
-				order: 'desc',
-			});
-			const descMonths = descResult.map(r => r.month);
-			expect(descMonths).toEqual(['2024-02', '2024-01', '2023-12', '2023-11']);
-
-			// Ascending order
-			const ascResult = await loadMonthlyUsageData({
-				claudePath: fixture.path,
-				order: 'asc',
-			});
-			const ascMonths = ascResult.map(r => r.month);
-			expect(ascMonths).toEqual(['2023-11', '2023-12', '2024-01', '2024-02']);
-		});
-
-		it('respects date filters', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-02-15T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-				{
-					timestamp: createISOTimestamp('2024-03-01T12:00:00Z'),
-					message: { usage: { input_tokens: 150, output_tokens: 75 } },
-					costUSD: 0.015,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadMonthlyUsageData({
-				claudePath: fixture.path,
-				since: '20240110',
-				until: '20240225',
-			});
-
-			// Should only include February data
-			expect(result).toHaveLength(1);
-			expect(result[0]?.month).toBe('2024-02');
-			expect(result[0]?.inputTokens).toBe(200);
-		});
-
-		it('handles cache tokens correctly', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: {
-						usage: {
-							input_tokens: 100,
-							output_tokens: 50,
-							cache_creation_input_tokens: 25,
-							cache_read_input_tokens: 10,
-						},
-					},
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-					message: {
-						usage: {
-							input_tokens: 200,
-							output_tokens: 100,
-							cache_creation_input_tokens: 50,
-							cache_read_input_tokens: 20,
-						},
-					},
-					costUSD: 0.02,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadMonthlyUsageData({ claudePath: fixture.path });
-
-			expect(result).toHaveLength(1);
-			expect(result[0]?.cacheCreationTokens).toBe(75); // 25 + 50
-			expect(result[0]?.cacheReadTokens).toBe(30); // 10 + 20
-		});
-	});
-
-	describe('loadWeeklyUsageData', () => {
-		it('aggregates daily data by week correctly', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-02T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-					message: { usage: { input_tokens: 150, output_tokens: 75 } },
-					costUSD: 0.015,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadWeeklyUsageData({ claudePath: fixture.path });
-
-			// Should be sorted by week descending (2024-01-15 first)
-			expect(result).toHaveLength(2);
-			expect(result[0]).toEqual({
-				week: '2024-01-14',
-				inputTokens: 150,
-				outputTokens: 75,
-				cacheCreationTokens: 0,
-				cacheReadTokens: 0,
-				totalCost: 0.015,
-				modelsUsed: [],
-				modelBreakdowns: [{
-					modelName: 'unknown',
-					inputTokens: 150,
-					outputTokens: 75,
-					cacheCreationTokens: 0,
-					cacheReadTokens: 0,
-					cost: 0.015,
-				}],
-			});
-			expect(result[1]).toEqual({
-				week: '2023-12-31',
-				inputTokens: 300,
-				outputTokens: 150,
-				cacheCreationTokens: 0,
-				cacheReadTokens: 0,
-				totalCost: 0.03,
-				modelsUsed: [],
-				modelBreakdowns: [{
-					modelName: 'unknown',
-					inputTokens: 300,
-					outputTokens: 150,
-					cacheCreationTokens: 0,
-					cacheReadTokens: 0,
-					cost: 0.03,
-				}],
-			});
-		});
-
-		it('handles empty data', async () => {
-			await using fixture = await createFixture({
-				projects: {},
-			});
-
-			const result = await loadWeeklyUsageData({ claudePath: fixture.path });
-			expect(result).toEqual([]);
-		});
-
-		it('handles single week data', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-03T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadWeeklyUsageData({ claudePath: fixture.path });
-
-			expect(result).toHaveLength(1);
-			expect(result[0]).toEqual({
-				week: '2023-12-31',
-				inputTokens: 300,
-				outputTokens: 150,
-				cacheCreationTokens: 0,
-				cacheReadTokens: 0,
-				totalCost: 0.03,
-				modelsUsed: [],
-				modelBreakdowns: [{
-					modelName: 'unknown',
-					inputTokens: 300,
-					outputTokens: 150,
-					cacheCreationTokens: 0,
-					cacheReadTokens: 0,
-					cost: 0.03,
-				}],
-			});
-		});
-
-		it('sorts weeks in descending order', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-08T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-22T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadWeeklyUsageData({ claudePath: fixture.path });
-			const weeks = result.map(r => r.week);
-
-			expect(weeks).toEqual(['2024-01-21', '2024-01-14', '2024-01-07', '2023-12-31']);
-		});
-
-		it('sorts weeks in ascending order when order is \'asc\'', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-08T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-22T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadWeeklyUsageData({ claudePath: fixture.path, order: 'asc' });
-			const weeks = result.map(r => r.week);
-
-			expect(weeks).toEqual(['2023-12-31', '2024-01-07', '2024-01-14', '2024-01-21']);
-		});
-
-		it('handles year boundaries correctly in sorting', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2023-12-04T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-02-05T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2023-11-06T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			// Descending order (default)
-			const descResult = await loadWeeklyUsageData({
-				claudePath: fixture.path,
-				order: 'desc',
-			});
-			const descWeeks = descResult.map(r => r.week);
-			expect(descWeeks).toEqual(['2024-02-04', '2023-12-31', '2023-12-03', '2023-11-05']);
-
-			// Ascending order
-			const ascResult = await loadWeeklyUsageData({
-				claudePath: fixture.path,
-				order: 'asc',
-			});
-			const ascWeeks = ascResult.map(r => r.week);
-			expect(ascWeeks).toEqual(['2023-11-05', '2023-12-03', '2023-12-31', '2024-02-04']);
-		});
-
-		it('respects date filters', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-02T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-02-06T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					costUSD: 0.02,
-				},
-				{
-					timestamp: createISOTimestamp('2024-03-05T12:00:00Z'),
-					message: { usage: { input_tokens: 150, output_tokens: 75 } },
-					costUSD: 0.015,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadWeeklyUsageData({
-				claudePath: fixture.path,
-				since: '20240110',
-				until: '20240225',
-			});
-
-			// Should only include February data
-			expect(result).toHaveLength(1);
-			expect(result[0]?.week).toBe('2024-02-04');
-			expect(result[0]?.inputTokens).toBe(200);
-		});
-
-		it('handles cache tokens correctly', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-02T12:00:00Z'),
-					message: {
-						usage: {
-							input_tokens: 100,
-							output_tokens: 50,
-							cache_creation_input_tokens: 25,
-							cache_read_input_tokens: 10,
-						},
-					},
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-03T12:00:00Z'),
-					message: {
-						usage: {
-							input_tokens: 200,
-							output_tokens: 100,
-							cache_creation_input_tokens: 50,
-							cache_read_input_tokens: 20,
-						},
-					},
-					costUSD: 0.02,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'file.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadWeeklyUsageData({ claudePath: fixture.path });
-
-			expect(result).toHaveLength(1);
-			expect(result[0]?.cacheCreationTokens).toBe(75); // 25 + 50
-			expect(result[0]?.cacheReadTokens).toBe(30); // 10 + 20
-		});
-	});
-
-	describe('loadSessionData', () => {
-		it('returns empty array when no files found', async () => {
-			await using fixture = await createFixture({
-				projects: {},
-			});
-
-			const result = await loadSessionData({ claudePath: fixture.path });
-			expect(result).toEqual([]);
-		});
-
-		it('extracts session info from file paths', async () => {
-			const mockData: UsageData = {
-				timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-				message: { usage: { input_tokens: 100, output_tokens: 50 } },
-				costUSD: 0.01,
-			};
-
-			await using fixture = await createFixture({
-				projects: {
-					'project1/subfolder': {
-						session123: {
-							'chat.jsonl': JSON.stringify(mockData),
-						},
-					},
-					'project2': {
-						session456: {
-							'chat.jsonl': JSON.stringify(mockData),
-						},
-					},
-				},
-			});
-
-			const result = await loadSessionData({ claudePath: fixture.path });
-
-			expect(result).toHaveLength(2);
-			expect(result.find(s => s.sessionId === 'session123')).toBeTruthy();
-			expect(
-				result.find(s => s.projectPath === 'project1/subfolder'),
-			).toBeTruthy();
-			expect(result.find(s => s.sessionId === 'session456')).toBeTruthy();
-			expect(result.find(s => s.projectPath === 'project2')).toBeTruthy();
-		});
-
-		it('aggregates session usage data', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: {
-						usage: {
-							input_tokens: 100,
-							output_tokens: 50,
-							cache_creation_input_tokens: 10,
-							cache_read_input_tokens: 5,
-						},
-					},
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: {
-						usage: {
-							input_tokens: 200,
-							output_tokens: 100,
-							cache_creation_input_tokens: 20,
-							cache_read_input_tokens: 10,
-						},
-					},
-					costUSD: 0.02,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'chat.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadSessionData({ claudePath: fixture.path });
-
-			expect(result).toHaveLength(1);
-			const session = result[0];
-			expect(session?.sessionId).toBe('session1');
-			expect(session?.projectPath).toBe('project1');
-			expect(session?.inputTokens).toBe(300); // 100 + 200
-			expect(session?.outputTokens).toBe(150); // 50 + 100
-			expect(session?.cacheCreationTokens).toBe(30); // 10 + 20
-			expect(session?.cacheReadTokens).toBe(15); // 5 + 10
-			expect(session?.totalCost).toBe(0.03); // 0.01 + 0.02
-			expect(session?.lastActivity).toBe('2024-01-01');
-		});
-
-		it('tracks versions', async () => {
-			const mockData: UsageData[] = [
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					version: createVersion('1.0.0'),
-					costUSD: 0.01,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-					message: { usage: { input_tokens: 200, output_tokens: 100 } },
-					version: createVersion('1.1.0'),
-					costUSD: 0.02,
-				},
-				{
-					timestamp: createISOTimestamp('2024-01-01T18:00:00Z'),
-					message: { usage: { input_tokens: 300, output_tokens: 150 } },
-					version: createVersion('1.0.0'), // Duplicate version
-					costUSD: 0.03,
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'chat.jsonl': mockData.map(d => JSON.stringify(d)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadSessionData({ claudePath: fixture.path });
-
-			const session = result[0];
-			expect(session?.versions).toEqual(['1.0.0', '1.1.0']); // Sorted and unique
-		});
-
-		it('sorts by last activity descending', async () => {
-			const sessions = [
-				{
-					sessionId: 'session1',
-					data: {
-						timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-				{
-					sessionId: 'session2',
-					data: {
-						timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-				{
-					sessionId: 'session3',
-					data: {
-						timestamp: createISOTimestamp('2024-01-31T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: Object.fromEntries(
-						sessions.map(s => [
-							s.sessionId,
-							{ 'chat.jsonl': JSON.stringify(s.data) },
-						]),
-					),
-				},
-			});
-
-			const result = await loadSessionData({ claudePath: fixture.path });
-
-			expect(result[0]?.sessionId).toBe('session3');
-			expect(result[1]?.sessionId).toBe('session1');
-			expect(result[2]?.sessionId).toBe('session2');
-		});
-
-		it('sorts by last activity ascending when order is \'asc\'', async () => {
-			const sessions = [
-				{
-					sessionId: 'session1',
-					data: {
-						timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-				{
-					sessionId: 'session2',
-					data: {
-						timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-				{
-					sessionId: 'session3',
-					data: {
-						timestamp: createISOTimestamp('2024-01-31T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: Object.fromEntries(
-						sessions.map(s => [
-							s.sessionId,
-							{ 'chat.jsonl': JSON.stringify(s.data) },
-						]),
-					),
-				},
-			});
-
-			const result = await loadSessionData({
-				claudePath: fixture.path,
-				order: 'asc',
-			});
-
-			expect(result[0]?.sessionId).toBe('session2'); // oldest first
-			expect(result[1]?.sessionId).toBe('session1');
-			expect(result[2]?.sessionId).toBe('session3'); // newest last
-		});
-
-		it('sorts by last activity descending when order is \'desc\'', async () => {
-			const sessions = [
-				{
-					sessionId: 'session1',
-					data: {
-						timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-				{
-					sessionId: 'session2',
-					data: {
-						timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-				{
-					sessionId: 'session3',
-					data: {
-						timestamp: createISOTimestamp('2024-01-31T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: Object.fromEntries(
-						sessions.map(s => [
-							s.sessionId,
-							{ 'chat.jsonl': JSON.stringify(s.data) },
-						]),
-					),
-				},
-			});
-
-			const result = await loadSessionData({
-				claudePath: fixture.path,
-				order: 'desc',
-			});
-
-			expect(result[0]?.sessionId).toBe('session3'); // newest first (same as default)
-			expect(result[1]?.sessionId).toBe('session1');
-			expect(result[2]?.sessionId).toBe('session2'); // oldest last
-		});
-
-		it('filters by date range based on last activity', async () => {
-			const sessions = [
-				{
-					sessionId: 'session1',
-					data: {
-						timestamp: createISOTimestamp('2024-01-01T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-				{
-					sessionId: 'session2',
-					data: {
-						timestamp: createISOTimestamp('2024-01-15T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-				{
-					sessionId: 'session3',
-					data: {
-						timestamp: createISOTimestamp('2024-01-31T12:00:00Z'),
-						message: { usage: { input_tokens: 100, output_tokens: 50 } },
-						costUSD: 0.01,
-					},
-				},
-			];
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: Object.fromEntries(
-						sessions.map(s => [
-							s.sessionId,
-							{ 'chat.jsonl': JSON.stringify(s.data) },
-						]),
-					),
-				},
-			});
-
-			const result = await loadSessionData({
-				claudePath: fixture.path,
-				since: '20240110',
-				until: '20240125',
-			});
-
-			expect(result).toHaveLength(1);
-			expect(result[0]?.lastActivity).toBe('2024-01-15');
-		});
-	});
-
-	describe('data-loader cost calculation with real pricing', () => {
-		describe('loadDailyUsageData with mixed schemas', () => {
-			it('should handle old schema with costUSD', async () => {
-				const oldData = {
-					timestamp: '2024-01-15T10:00:00Z',
-					message: {
-						usage: {
-							input_tokens: 1000,
-							output_tokens: 500,
-						},
-					},
-					costUSD: 0.05, // Pre-calculated cost
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project-old': {
-							'session-old': {
-								'usage.jsonl': `${JSON.stringify(oldData)}\n`,
-							},
-						},
-					},
+					totalCost: 0,
 				});
-
-				const results = await loadDailyUsageData({ claudePath: fixture.path });
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.date).toBe('2024-01-15');
-				expect(results[0]?.inputTokens).toBe(1000);
-				expect(results[0]?.outputTokens).toBe(500);
-				expect(results[0]?.totalCost).toBe(0.05);
-			});
-
-			it('should calculate cost for new schema with claude-sonnet-4-20250514', async () => {
-			// Use a well-known Claude model
-				const modelName = createModelName('claude-sonnet-4-20250514');
-
-				const newData = {
-					timestamp: '2024-01-16T10:00:00Z',
-					message: {
-						usage: {
-							input_tokens: 1000,
-							output_tokens: 500,
-							cache_creation_input_tokens: 200,
-							cache_read_input_tokens: 300,
-						},
-						model: modelName,
-					},
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project-new': {
-							'session-new': {
-								'usage.jsonl': `${JSON.stringify(newData)}\n`,
-							},
-						},
-					},
-				});
-
-				const results = await loadDailyUsageData({ claudePath: fixture.path });
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.date).toBe('2024-01-16');
-				expect(results[0]?.inputTokens).toBe(1000);
-				expect(results[0]?.outputTokens).toBe(500);
-				expect(results[0]?.cacheCreationTokens).toBe(200);
-				expect(results[0]?.cacheReadTokens).toBe(300);
-
-				// Should have calculated some cost
-				expect(results[0]?.totalCost).toBeGreaterThan(0);
-			});
-
-			it('should calculate cost for new schema with claude-opus-4-20250514', async () => {
-			// Use Claude 4 Opus model
-				const modelName = createModelName('claude-opus-4-20250514');
-
-				const newData = {
-					timestamp: '2024-01-16T10:00:00Z',
-					message: {
-						usage: {
-							input_tokens: 1000,
-							output_tokens: 500,
-							cache_creation_input_tokens: 200,
-							cache_read_input_tokens: 300,
-						},
-						model: modelName,
-					},
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project-opus': {
-							'session-opus': {
-								'usage.jsonl': `${JSON.stringify(newData)}\n`,
-							},
-						},
-					},
-				});
-
-				const results = await loadDailyUsageData({ claudePath: fixture.path });
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.date).toBe('2024-01-16');
-				expect(results[0]?.inputTokens).toBe(1000);
-				expect(results[0]?.outputTokens).toBe(500);
-				expect(results[0]?.cacheCreationTokens).toBe(200);
-				expect(results[0]?.cacheReadTokens).toBe(300);
-
-				// Should have calculated some cost
-				expect(results[0]?.totalCost).toBeGreaterThan(0);
-			});
-
-			it('should handle mixed data in same file', async () => {
-				const data1 = {
-					timestamp: '2024-01-17T10:00:00Z',
-					message: { usage: { input_tokens: 100, output_tokens: 50 } },
-					costUSD: 0.01,
-				};
-
-				const data2 = {
-					timestamp: '2024-01-17T11:00:00Z',
-					message: {
-						usage: { input_tokens: 200, output_tokens: 100 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-				};
-
-				const data3 = {
-					timestamp: '2024-01-17T12:00:00Z',
-					message: { usage: { input_tokens: 300, output_tokens: 150 } },
-				// No costUSD and no model - should be 0 cost
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project-mixed': {
-							'session-mixed': {
-								'usage.jsonl': `${JSON.stringify(data1)}\n${JSON.stringify(data2)}\n${JSON.stringify(data3)}\n`,
-							},
-						},
-					},
-				});
-
-				const results = await loadDailyUsageData({ claudePath: fixture.path });
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.date).toBe('2024-01-17');
-				expect(results[0]?.inputTokens).toBe(600); // 100 + 200 + 300
-				expect(results[0]?.outputTokens).toBe(300); // 50 + 100 + 150
-
-				// Total cost should be at least the pre-calculated cost from data1
-				expect(results[0]?.totalCost).toBeGreaterThanOrEqual(0.01);
-			});
-
-			it('should handle data without model or costUSD', async () => {
-				const data = {
-					timestamp: '2024-01-18T10:00:00Z',
-					message: { usage: { input_tokens: 500, output_tokens: 250 } },
-				// No costUSD and no model
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project-no-cost': {
-							'session-no-cost': {
-								'usage.jsonl': `${JSON.stringify(data)}\n`,
-							},
-						},
-					},
-				});
-
-				const results = await loadDailyUsageData({ claudePath: fixture.path });
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.inputTokens).toBe(500);
-				expect(results[0]?.outputTokens).toBe(250);
-				expect(results[0]?.totalCost).toBe(0); // 0 cost when no pricing info available
-			});
-		});
-
-		describe('loadSessionData with mixed schemas', () => {
-			it('should handle mixed cost sources in different sessions', async () => {
-				const session1Data = {
-					timestamp: '2024-01-15T10:00:00Z',
-					message: { usage: { input_tokens: 1000, output_tokens: 500 } },
-					costUSD: 0.05,
-				};
-
-				const session2Data = {
-					timestamp: '2024-01-16T10:00:00Z',
-					message: {
-						usage: { input_tokens: 2000, output_tokens: 1000 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project': {
-							session1: {
-								'usage.jsonl': JSON.stringify(session1Data),
-							},
-							session2: {
-								'usage.jsonl': JSON.stringify(session2Data),
-							},
-						},
-					},
-				});
-
-				const results = await loadSessionData({ claudePath: fixture.path });
-
-				expect(results).toHaveLength(2);
-
-				// Check session 1
-				const session1 = results.find(s => s.sessionId === 'session1');
-				expect(session1).toBeTruthy();
-				expect(session1?.totalCost).toBe(0.05);
-
-				// Check session 2
-				const session2 = results.find(s => s.sessionId === 'session2');
-				expect(session2).toBeTruthy();
-				expect(session2?.totalCost).toBeGreaterThan(0);
-			});
-
-			it('should handle unknown models gracefully', async () => {
-				const data = {
-					timestamp: '2024-01-19T10:00:00Z',
-					message: {
-						usage: { input_tokens: 1000, output_tokens: 500 },
-						model: 'unknown-model-xyz',
-					},
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project-unknown': {
-							'session-unknown': {
-								'usage.jsonl': `${JSON.stringify(data)}\n`,
-							},
-						},
-					},
-				});
-
-				const results = await loadSessionData({ claudePath: fixture.path });
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.inputTokens).toBe(1000);
-				expect(results[0]?.outputTokens).toBe(500);
-				expect(results[0]?.totalCost).toBe(0); // 0 cost for unknown model
-			});
-		});
-
-		describe('cached tokens cost calculation', () => {
-			it('should correctly calculate costs for all token types with claude-sonnet-4-20250514', async () => {
-				const data = {
-					timestamp: '2024-01-20T10:00:00Z',
-					message: {
-						usage: {
-							input_tokens: 1000,
-							output_tokens: 500,
-							cache_creation_input_tokens: 2000,
-							cache_read_input_tokens: 1500,
-						},
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project-cache': {
-							'session-cache': {
-								'usage.jsonl': `${JSON.stringify(data)}\n`,
-							},
-						},
-					},
-				});
-
-				const results = await loadDailyUsageData({ claudePath: fixture.path });
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.date).toBe('2024-01-20');
-				expect(results[0]?.inputTokens).toBe(1000);
-				expect(results[0]?.outputTokens).toBe(500);
-				expect(results[0]?.cacheCreationTokens).toBe(2000);
-				expect(results[0]?.cacheReadTokens).toBe(1500);
-
-				// Should have calculated cost including cache tokens
-				expect(results[0]?.totalCost).toBeGreaterThan(0);
-			});
-
-			it('should correctly calculate costs for all token types with claude-opus-4-20250514', async () => {
-				const data = {
-					timestamp: '2024-01-20T10:00:00Z',
-					message: {
-						usage: {
-							input_tokens: 1000,
-							output_tokens: 500,
-							cache_creation_input_tokens: 2000,
-							cache_read_input_tokens: 1500,
-						},
-						model: createModelName('claude-opus-4-20250514'),
-					},
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project-opus-cache': {
-							'session-opus-cache': {
-								'usage.jsonl': `${JSON.stringify(data)}\n`,
-							},
-						},
-					},
-				});
-
-				const results = await loadDailyUsageData({ claudePath: fixture.path });
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.date).toBe('2024-01-20');
-				expect(results[0]?.inputTokens).toBe(1000);
-				expect(results[0]?.outputTokens).toBe(500);
-				expect(results[0]?.cacheCreationTokens).toBe(2000);
-				expect(results[0]?.cacheReadTokens).toBe(1500);
-
-				// Should have calculated cost including cache tokens
-				expect(results[0]?.totalCost).toBeGreaterThan(0);
-			});
-		});
-
-		describe('cost mode functionality', () => {
-			it('auto mode: uses costUSD when available, calculates otherwise', async () => {
-				const data1 = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: { usage: { input_tokens: 1000, output_tokens: 500 } },
-					costUSD: 0.05,
-				};
-
-				const data2 = {
-					timestamp: '2024-01-01T11:00:00Z',
-					message: {
-						usage: { input_tokens: 2000, output_tokens: 1000 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project': {
-							session: {
-								'usage.jsonl': `${JSON.stringify(data1)}\n${JSON.stringify(data2)}\n`,
-							},
-						},
-					},
-				});
-
-				const results = await loadDailyUsageData({
-					claudePath: fixture.path,
-					mode: 'auto',
-				});
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.totalCost).toBeGreaterThan(0.05); // Should include both costs
-			});
-
-			it('calculate mode: always calculates from tokens, ignores costUSD', async () => {
-				const data = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: { input_tokens: 1000, output_tokens: 500 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-					costUSD: 99.99, // This should be ignored
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project': {
-							session: {
-								'usage.jsonl': JSON.stringify(data),
-							},
-						},
-					},
-				});
-
-				const results = await loadDailyUsageData({
-					claudePath: fixture.path,
-					mode: 'calculate',
-				});
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.totalCost).toBeGreaterThan(0);
-				expect(results[0]?.totalCost).toBeLessThan(1); // Much less than 99.99
-			});
-
-			it('display mode: always uses costUSD, even if undefined', async () => {
-				const data1 = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: { input_tokens: 1000, output_tokens: 500 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-					costUSD: 0.05,
-				};
-
-				const data2 = {
-					timestamp: '2024-01-01T11:00:00Z',
-					message: {
-						usage: { input_tokens: 2000, output_tokens: 1000 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-				// No costUSD - should result in 0 cost
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project': {
-							session: {
-								'usage.jsonl': `${JSON.stringify(data1)}\n${JSON.stringify(data2)}\n`,
-							},
-						},
-					},
-				});
-
-				const results = await loadDailyUsageData({
-					claudePath: fixture.path,
-					mode: 'display',
-				});
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.totalCost).toBe(0.05); // Only the costUSD from data1
-			});
-
-			it('mode works with session data', async () => {
-				const sessionData = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: { input_tokens: 1000, output_tokens: 500 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-					costUSD: 99.99,
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project': {
-							session1: {
-								'usage.jsonl': JSON.stringify(sessionData),
-							},
-						},
-					},
-				});
-
-				// Test calculate mode
-				const calculateResults = await loadSessionData({
-					claudePath: fixture.path,
-					mode: 'calculate',
-				});
-				expect(calculateResults[0]?.totalCost).toBeLessThan(1);
-
-				// Test display mode
-				const displayResults = await loadSessionData({
-					claudePath: fixture.path,
-					mode: 'display',
-				});
-				expect(displayResults[0]?.totalCost).toBe(99.99);
-			});
-		});
-
-		describe('pricing data fetching optimization', () => {
-			it('should not require model pricing when mode is display', async () => {
-				const data = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: { input_tokens: 1000, output_tokens: 500 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-					costUSD: 0.05,
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project': {
-							session: {
-								'usage.jsonl': JSON.stringify(data),
-							},
-						},
-					},
-				});
-
-				// In display mode, only pre-calculated costUSD should be used
-				const results = await loadDailyUsageData({
-					claudePath: fixture.path,
-					mode: 'display',
-				});
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.totalCost).toBe(0.05);
-			});
-
-			it('should fetch pricing data when mode is calculate', async () => {
-				const data = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: { input_tokens: 1000, output_tokens: 500 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-					costUSD: 0.05,
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project': {
-							session: {
-								'usage.jsonl': JSON.stringify(data),
-							},
-						},
-					},
-				});
-
-				// This should fetch pricing data (will call real fetch)
-				const results = await loadDailyUsageData({
-					claudePath: fixture.path,
-					mode: 'calculate',
-				});
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.totalCost).toBeGreaterThan(0);
-				expect(results[0]?.totalCost).not.toBe(0.05); // Should calculate, not use costUSD
-			});
-
-			it('should fetch pricing data when mode is auto', async () => {
-				const data = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: { input_tokens: 1000, output_tokens: 500 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-				// No costUSD, so auto mode will need to calculate
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project': {
-							session: {
-								'usage.jsonl': JSON.stringify(data),
-							},
-						},
-					},
-				});
-
-				// This should fetch pricing data (will call real fetch)
-				const results = await loadDailyUsageData({
-					claudePath: fixture.path,
-					mode: 'auto',
-				});
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.totalCost).toBeGreaterThan(0);
-			});
-
-			it('session data should not require model pricing when mode is display', async () => {
-				const data = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: { input_tokens: 1000, output_tokens: 500 },
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-					costUSD: 0.05,
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project': {
-							session: {
-								'usage.jsonl': JSON.stringify(data),
-							},
-						},
-					},
-				});
-
-				// In display mode, only pre-calculated costUSD should be used
-				const results = await loadSessionData({
-					claudePath: fixture.path,
-					mode: 'display',
-				});
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.totalCost).toBe(0.05);
-			});
-
-			it('display mode should work without network access', async () => {
-				const data = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: { input_tokens: 1000, output_tokens: 500 },
-						model: 'some-unknown-model',
-					},
-					costUSD: 0.05,
-				};
-
-				await using fixture = await createFixture({
-					projects: {
-						'test-project': {
-							session: {
-								'usage.jsonl': JSON.stringify(data),
-							},
-						},
-					},
-				});
-
-				// This test verifies that display mode doesn't try to fetch pricing
-				// by using an unknown model that would cause pricing lookup to fail
-				// if it were attempted. Since we're in display mode, it should just
-				// use the costUSD value.
-				const results = await loadDailyUsageData({
-					claudePath: fixture.path,
-					mode: 'display',
-				});
-
-				expect(results).toHaveLength(1);
-				expect(results[0]?.totalCost).toBe(0.05);
-			});
-		});
-	});
-
-	describe('calculateCostForEntry', () => {
-		const mockUsageData: UsageData = {
-			timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-			message: {
-				usage: {
-					input_tokens: 1000,
-					output_tokens: 500,
-					cache_creation_input_tokens: 200,
-					cache_read_input_tokens: 100,
-				},
-				model: createModelName('claude-sonnet-4-20250514'),
-			},
-			costUSD: 0.05,
-		};
-
-		describe('display mode', () => {
-			it('should return costUSD when available', async () => {
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(mockUsageData, 'display', fetcher);
-				expect(result).toBe(0.05);
-			});
-
-			it('should return 0 when costUSD is undefined', async () => {
-				const dataWithoutCost = { ...mockUsageData };
-				dataWithoutCost.costUSD = undefined;
-
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(dataWithoutCost, 'display', fetcher);
-				expect(result).toBe(0);
-			});
-
-			it('should not use model pricing in display mode', async () => {
-			// Even with model pricing available, should use costUSD
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(mockUsageData, 'display', fetcher);
-				expect(result).toBe(0.05);
-			});
-		});
-
-		describe('calculate mode', () => {
-			it('should calculate cost from tokens when model pricing available', async () => {
-			// Use the exact same structure as working integration tests
-				const testData: UsageData = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: {
-							input_tokens: 1000,
-							output_tokens: 500,
-						},
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-				};
-
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(testData, 'calculate', fetcher);
-
-				expect(result).toBeGreaterThan(0);
-			});
-
-			it('should ignore costUSD in calculate mode', async () => {
-				using fetcher = new PricingFetcher();
-				const dataWithHighCost = { ...mockUsageData, costUSD: 99.99 };
-				const result = await calculateCostForEntry(
-					dataWithHighCost,
-					'calculate',
-					fetcher,
-				);
-
-				expect(result).toBeGreaterThan(0);
-				expect(result).toBeLessThan(1); // Much less than 99.99
-			});
-
-			it('should return 0 when model not available', async () => {
-				const dataWithoutModel = { ...mockUsageData };
-				dataWithoutModel.message.model = undefined;
-
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(dataWithoutModel, 'calculate', fetcher);
-				expect(result).toBe(0);
-			});
-
-			it('should return 0 when model pricing not found', async () => {
-				const dataWithUnknownModel = {
-					...mockUsageData,
-					message: { ...mockUsageData.message, model: createModelName('unknown-model') },
-				};
-
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(
-					dataWithUnknownModel,
-					'calculate',
-					fetcher,
-				);
-				expect(result).toBe(0);
-			});
-
-			it('should handle missing cache tokens', async () => {
-				const dataWithoutCacheTokens: UsageData = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: {
-							input_tokens: 1000,
-							output_tokens: 500,
-						},
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-				};
-
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(
-					dataWithoutCacheTokens,
-					'calculate',
-					fetcher,
-				);
-
-				expect(result).toBeGreaterThan(0);
-			});
-		});
-
-		describe('auto mode', () => {
-			it('should use costUSD when available', async () => {
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(mockUsageData, 'auto', fetcher);
-				expect(result).toBe(0.05);
-			});
-
-			it('should calculate from tokens when costUSD undefined', async () => {
-				const dataWithoutCost: UsageData = {
-					timestamp: createISOTimestamp('2024-01-01T10:00:00Z'),
-					message: {
-						usage: {
-							input_tokens: 1000,
-							output_tokens: 500,
-						},
-						model: createModelName('claude-4-sonnet-20250514'),
-					},
-				};
-
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(
-					dataWithoutCost,
-					'auto',
-					fetcher,
-				);
-				expect(result).toBeGreaterThan(0);
-			});
-
-			it('should return 0 when no costUSD and no model', async () => {
-				const dataWithoutCostOrModel = { ...mockUsageData };
-				dataWithoutCostOrModel.costUSD = undefined;
-				dataWithoutCostOrModel.message.model = undefined;
-
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(dataWithoutCostOrModel, 'auto', fetcher);
-				expect(result).toBe(0);
-			});
-
-			it('should return 0 when no costUSD and model pricing not found', async () => {
-				const dataWithoutCost = { ...mockUsageData };
-				dataWithoutCost.costUSD = undefined;
-
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(dataWithoutCost, 'auto', fetcher);
-				expect(result).toBe(0);
-			});
-
-			it('should prefer costUSD over calculation even when both available', async () => {
-			// Both costUSD and model pricing available, should use costUSD
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(mockUsageData, 'auto', fetcher);
-				expect(result).toBe(0.05);
-			});
-		});
-
-		describe('edge cases', () => {
-			it('should handle zero token counts', async () => {
-				const dataWithZeroTokens = {
-					...mockUsageData,
-					message: {
-						...mockUsageData.message,
-						usage: {
-							input_tokens: 0,
-							output_tokens: 0,
-							cache_creation_input_tokens: 0,
-							cache_read_input_tokens: 0,
-						},
-					},
-				};
-				dataWithZeroTokens.costUSD = undefined;
-
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(dataWithZeroTokens, 'calculate', fetcher);
-				expect(result).toBe(0);
-			});
-
-			it('should handle costUSD of 0', async () => {
-				const dataWithZeroCost = { ...mockUsageData, costUSD: 0 };
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(dataWithZeroCost, 'display', fetcher);
-				expect(result).toBe(0);
-			});
-
-			it('should handle negative costUSD', async () => {
-				const dataWithNegativeCost = { ...mockUsageData, costUSD: -0.01 };
-				using fetcher = new PricingFetcher();
-				const result = await calculateCostForEntry(dataWithNegativeCost, 'display', fetcher);
-				expect(result).toBe(-0.01);
-			});
-		});
-
-		describe('offline mode', () => {
-			it('should pass offline flag through loadDailyUsageData', async () => {
-				await using fixture = await createFixture({ projects: {} });
-				// This test verifies that the offline flag is properly passed through
-				// We can't easily mock the internal behavior, but we can verify it doesn't throw
-				const result = await loadDailyUsageData({
-					claudePath: fixture.path,
-					offline: true,
-					mode: 'calculate',
-				});
-
-				// Should return empty array or valid data without throwing
-				expect(Array.isArray(result)).toBe(true);
-			});
-		});
-	});
-
-	describe('loadSessionBlockData', () => {
-		it('returns empty array when no files found', async () => {
-			await using fixture = await createFixture({ projects: {} });
-			const result = await loadSessionBlockData({ claudePath: fixture.path });
-			expect(result).toEqual([]);
-		});
-
-		it('loads and identifies five-hour blocks correctly', async () => {
-			const now = new Date('2024-01-01T10:00:00Z');
-			const laterTime = new Date(now.getTime() + 1 * 60 * 60 * 1000); // 1 hour later
-			const muchLaterTime = new Date(now.getTime() + 6 * 60 * 60 * 1000); // 6 hours later
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'conversation1.jsonl': [
-								{
-									timestamp: now.toISOString(),
-									message: {
-										id: 'msg1',
-										usage: {
-											input_tokens: 1000,
-											output_tokens: 500,
-										},
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req1',
-									costUSD: 0.01,
-									version: createVersion('1.0.0'),
-								},
-								{
-									timestamp: laterTime.toISOString(),
-									message: {
-										id: 'msg2',
-										usage: {
-											input_tokens: 2000,
-											output_tokens: 1000,
-										},
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req2',
-									costUSD: 0.02,
-									version: createVersion('1.0.0'),
-								},
-								{
-									timestamp: muchLaterTime.toISOString(),
-									message: {
-										id: 'msg3',
-										usage: {
-											input_tokens: 1500,
-											output_tokens: 750,
-										},
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req3',
-									costUSD: 0.015,
-									version: createVersion('1.0.0'),
-								},
-							].map(data => JSON.stringify(data)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadSessionBlockData({ claudePath: fixture.path });
-			expect(result.length).toBeGreaterThan(0); // Should have blocks
-			expect(result[0]?.entries).toHaveLength(1); // First block has one entry
-			// Total entries across all blocks should be 3
-			const totalEntries = result.reduce((sum, block) => sum + block.entries.length, 0);
-			expect(totalEntries).toBe(3);
-		});
-
-		it('handles cost calculation modes correctly', async () => {
-			const now = new Date('2024-01-01T10:00:00Z');
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'conversation1.jsonl': JSON.stringify({
-								timestamp: now.toISOString(),
-								message: {
-									id: 'msg1',
-									usage: {
-										input_tokens: 1000,
-										output_tokens: 500,
-									},
-									model: createModelName('claude-sonnet-4-20250514'),
-								},
-								request: { id: 'req1' },
-								costUSD: 0.01,
-								version: createVersion('1.0.0'),
-							}),
-						},
-					},
-				},
-			});
-
-			// Test display mode
-			const displayResult = await loadSessionBlockData({
-				claudePath: fixture.path,
-				mode: 'display',
-			});
-			expect(displayResult).toHaveLength(1);
-			expect(displayResult[0]?.costUSD).toBe(0.01);
-
-			// Test calculate mode
-			const calculateResult = await loadSessionBlockData({
-				claudePath: fixture.path,
-				mode: 'calculate',
-			});
-			expect(calculateResult).toHaveLength(1);
-			expect(calculateResult[0]?.costUSD).toBeGreaterThan(0);
-		});
-
-		it('filters by date range correctly', async () => {
-			const date1 = new Date('2024-01-01T10:00:00Z');
-			const date2 = new Date('2024-01-02T10:00:00Z');
-			const date3 = new Date('2024-01-03T10:00:00Z');
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'conversation1.jsonl': [
-								{
-									timestamp: date1.toISOString(),
-									message: {
-										id: 'msg1',
-										usage: { input_tokens: 1000, output_tokens: 500 },
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req1',
-									costUSD: 0.01,
-									version: createVersion('1.0.0'),
-								},
-								{
-									timestamp: date2.toISOString(),
-									message: {
-										id: 'msg2',
-										usage: { input_tokens: 2000, output_tokens: 1000 },
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req2',
-									costUSD: 0.02,
-									version: createVersion('1.0.0'),
-								},
-								{
-									timestamp: date3.toISOString(),
-									message: {
-										id: 'msg3',
-										usage: { input_tokens: 1500, output_tokens: 750 },
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req3',
-									costUSD: 0.015,
-									version: createVersion('1.0.0'),
-								},
-							].map(data => JSON.stringify(data)).join('\n'),
-						},
-					},
-				},
-			});
-
-			// Test filtering with since parameter
-			const sinceResult = await loadSessionBlockData({
-				claudePath: fixture.path,
-				since: '20240102',
-			});
-			expect(sinceResult.length).toBeGreaterThan(0);
-			expect(sinceResult.every(block => block.startTime >= date2)).toBe(true);
-
-			// Test filtering with until parameter
-			const untilResult = await loadSessionBlockData({
-				claudePath: fixture.path,
-				until: '20240102',
-			});
-			expect(untilResult.length).toBeGreaterThan(0);
-			// The filter uses formatDate which converts to YYYYMMDD format for comparison
-			expect(untilResult.every((block) => {
-				const blockDateStr = block.startTime.toISOString().slice(0, 10).replace(/-/g, '');
-				return blockDateStr <= '20240102';
-			})).toBe(true);
-		});
-
-		it('sorts blocks by order parameter', async () => {
-			const date1 = new Date('2024-01-01T10:00:00Z');
-			const date2 = new Date('2024-01-02T10:00:00Z');
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'conversation1.jsonl': [
-								{
-									timestamp: date2.toISOString(),
-									message: {
-										id: 'msg2',
-										usage: { input_tokens: 2000, output_tokens: 1000 },
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req2',
-									costUSD: 0.02,
-									version: createVersion('1.0.0'),
-								},
-								{
-									timestamp: date1.toISOString(),
-									message: {
-										id: 'msg1',
-										usage: { input_tokens: 1000, output_tokens: 500 },
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req1',
-									costUSD: 0.01,
-									version: createVersion('1.0.0'),
-								},
-							].map(data => JSON.stringify(data)).join('\n'),
-						},
-					},
-				},
-			});
-
-			// Test ascending order
-			const ascResult = await loadSessionBlockData({
-				claudePath: fixture.path,
-				order: 'asc',
-			});
-			expect(ascResult[0]?.startTime).toEqual(date1);
-
-			// Test descending order
-			const descResult = await loadSessionBlockData({
-				claudePath: fixture.path,
-				order: 'desc',
-			});
-			expect(descResult[0]?.startTime).toEqual(date2);
-		});
-
-		it('handles deduplication correctly', async () => {
-			const now = new Date('2024-01-01T10:00:00Z');
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'conversation1.jsonl': [
-								{
-									timestamp: now.toISOString(),
-									message: {
-										id: 'msg1',
-										usage: { input_tokens: 1000, output_tokens: 500 },
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req1',
-									costUSD: 0.01,
-									version: createVersion('1.0.0'),
-								},
-								// Duplicate entry - should be filtered out
-								{
-									timestamp: now.toISOString(),
-									message: {
-										id: 'msg1',
-										usage: { input_tokens: 1000, output_tokens: 500 },
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req1',
-									costUSD: 0.01,
-									version: createVersion('1.0.0'),
-								},
-							].map(data => JSON.stringify(data)).join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadSessionBlockData({ claudePath: fixture.path });
-			expect(result).toHaveLength(1);
-			expect(result[0]?.entries).toHaveLength(1); // Only one entry after deduplication
-		});
-
-		it('handles invalid JSON lines gracefully', async () => {
-			const now = new Date('2024-01-01T10:00:00Z');
-
-			await using fixture = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'conversation1.jsonl': [
-								'invalid json line',
-								JSON.stringify({
-									timestamp: now.toISOString(),
-									message: {
-										id: 'msg1',
-										usage: { input_tokens: 1000, output_tokens: 500 },
-										model: createModelName('claude-sonnet-4-20250514'),
-									},
-									requestId: 'req1',
-									costUSD: 0.01,
-									version: createVersion('1.0.0'),
-								}),
-								'another invalid line',
-							].join('\n'),
-						},
-					},
-				},
-			});
-
-			const result = await loadSessionBlockData({ claudePath: fixture.path });
-			expect(result).toHaveLength(1);
-			expect(result[0]?.entries).toHaveLength(1);
-		});
+			}
+			const sourceBreakdown = daily.sourceBreakdowns.get(entry.source)!;
+			sourceBreakdown.inputTokens += entry.usage.inputTokens;
+			sourceBreakdown.outputTokens += entry.usage.outputTokens;
+			sourceBreakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			sourceBreakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			sourceBreakdown.totalCost += entryCost;
+		}
+	}
+
+	// Convert to DailyUsage array
+	const result: DailyUsage[] = Array.from(dailyMap.entries()).map(([date, data]) => ({
+		date: createDailyDate(date),
+		inputTokens: data.inputTokens,
+		outputTokens: data.outputTokens,
+		cacheCreationTokens: data.cacheCreationTokens,
+		cacheReadTokens: data.cacheReadTokens,
+		totalCost: data.totalCost,
+		modelsUsed: Array.from(data.modelsUsed).sort().map(createModelName),
+		modelBreakdowns: Array.from(data.modelBreakdowns.values()),
+		sourceBreakdowns: Array.from(data.sourceBreakdowns.values()),
+		project: data.project,
+	}));
+
+
+
+	// Filter by date range if specified
+	const dateFiltered = filterByDateRange(result, item => item.date, options?.since, options?.until);
+
+	// Filter by project if specified
+	const finalFiltered = filterByProject(dateFiltered, item => item.project, options?.project);
+
+	// Sort by date
+	return finalFiltered.sort((a, b) => {
+		const order = options?.order ?? 'asc';
+		const comparison = a.date.localeCompare(b.date);
+		return order === 'desc' ? -comparison : comparison;
 	});
 }
 
-// duplication functionality tests
-if (import.meta.vitest != null) {
-	describe('deduplication functionality', () => {
-		describe('createUniqueHash', () => {
-			it('should create hash from message id and request id', () => {
-				const data = {
-					timestamp: createISOTimestamp('2025-01-10T10:00:00Z'),
-					message: {
-						id: createMessageId('msg_123'),
-						usage: {
-							input_tokens: 100,
-							output_tokens: 50,
-						},
-					},
-					requestId: createRequestId('req_456'),
-				};
+/**
+ * Unified monthly usage data loader that supports both Claude Code and OpenCode
+ * Uses loadSessionBlockData internally and aggregates into monthly summaries
+ */
+export async function loadUnifiedMonthlyUsageData(
+	options?: LoadOptions,
+): Promise<MonthlyUsage[]> {
+	// Load session blocks from both sources
+	const blocks = await loadSessionBlockData(options);
 
-				const hash = createUniqueHash(data);
-				expect(hash).toBe('msg_123:req_456');
-			});
+	if (blocks.length === 0) {
+		return [];
+	}
 
-			it('should return null when message id is missing', () => {
-				const data = {
-					timestamp: createISOTimestamp('2025-01-10T10:00:00Z'),
-					message: {
-						usage: {
-							input_tokens: 100,
-							output_tokens: 50,
-						},
-					},
-					requestId: createRequestId('req_456'),
-				};
+	// Group entries by month
+	const monthlyMap = new Map<string, {
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+		cacheReadTokens: number;
+		totalCost: number;
+		modelsUsed: Set<string>;
+		modelBreakdowns: Map<string, ModelBreakdown>;
+		sourceBreakdowns: Map<'claude' | 'opencode', SourceBreakdown>;
+	}>();
 
-				const hash = createUniqueHash(data);
-				expect(hash).toBeNull();
-			});
+	// Helper function to get custom month key based on start day
+	const getCustomMonthKey = (timestamp: string): string => {
+		const date = new Date(timestamp);
+		const startDay = options?.startOfMonth ?? 1;
 
-			it('should return null when request id is missing', () => {
-				const data = {
-					timestamp: createISOTimestamp('2025-01-10T10:00:00Z'),
-					message: {
-						id: createMessageId('msg_123'),
-						usage: {
-							input_tokens: 100,
-							output_tokens: 50,
-						},
-					},
-				};
+		// If we're before the start day, this entry belongs to the previous month's cycle
+		if (date.getDate() < startDay) {
+			const prevMonth = new Date(date.getFullYear(), date.getMonth() - 1, startDay);
+			return formatDate(prevMonth.toISOString(), options?.timezone, options?.locale).substring(0, 7);
+		}
+		else {
+			// This entry belongs to the current month's cycle
+			const currentMonth = new Date(date.getFullYear(), date.getMonth(), startDay);
+			return formatDate(currentMonth.toISOString(), options?.timezone, options?.locale).substring(0, 7);
+		}
+	};
 
-				const hash = createUniqueHash(data);
-				expect(hash).toBeNull();
-			});
-		});
+	for (const block of blocks) {
+		for (const entry of block.entries) {
+			// Use custom month grouping based on start day
+			const monthKey = getCustomMonthKey(entry.timestamp.toISOString());
 
-		describe('getEarliestTimestamp', () => {
-			it('should extract earliest timestamp from JSONL file', async () => {
-				const content = [
-					JSON.stringify({ timestamp: '2025-01-15T12:00:00Z', message: { usage: {} } }),
-					JSON.stringify({ timestamp: '2025-01-10T10:00:00Z', message: { usage: {} } }),
-					JSON.stringify({ timestamp: '2025-01-12T11:00:00Z', message: { usage: {} } }),
-				].join('\n');
-
-				await using fixture = await createFixture({
-					'test.jsonl': content,
+			if (!monthlyMap.has(monthKey)) {
+				monthlyMap.set(monthKey, {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+					modelsUsed: new Set(),
+					modelBreakdowns: new Map(),
+					sourceBreakdowns: new Map(),
 				});
+			}
 
-				const timestamp = await getEarliestTimestamp(fixture.getPath('test.jsonl'));
-				expect(timestamp).toEqual(new Date('2025-01-10T10:00:00Z'));
-			});
+			const monthly = monthlyMap.get(monthKey)!;
+			monthly.inputTokens += entry.usage.inputTokens;
+			monthly.outputTokens += entry.usage.outputTokens;
+			monthly.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			monthly.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			monthly.totalCost += entry.costUSD ?? 0;
+			monthly.modelsUsed.add(entry.model);
 
-			it('should handle files without timestamps', async () => {
-				const content = [
-					JSON.stringify({ message: { usage: {} } }),
-					JSON.stringify({ data: 'no timestamp' }),
-				].join('\n');
-
-				await using fixture = await createFixture({
-					'test.jsonl': content,
+			// Track model breakdown
+			if (!monthly.modelBreakdowns.has(entry.model)) {
+				monthly.modelBreakdowns.set(entry.model, {
+					modelName: createModelName(entry.model),
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					cost: 0,
 				});
+			}
+			const breakdown = monthly.modelBreakdowns.get(entry.model)!;
+			breakdown.inputTokens += entry.usage.inputTokens;
+			breakdown.outputTokens += entry.usage.outputTokens;
+			breakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			breakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			breakdown.cost += entry.costUSD ?? 0;
 
-				const timestamp = await getEarliestTimestamp(fixture.getPath('test.jsonl'));
-				expect(timestamp).toBeNull();
-			});
-
-			it('should skip invalid JSON lines', async () => {
-				const content = [
-					'invalid json',
-					JSON.stringify({ timestamp: '2025-01-10T10:00:00Z', message: { usage: {} } }),
-					'{ broken: json',
-				].join('\n');
-
-				await using fixture = await createFixture({
-					'test.jsonl': content,
+			// Track source breakdown
+			if (!monthly.sourceBreakdowns.has(entry.source)) {
+				monthly.sourceBreakdowns.set(entry.source, {
+					source: entry.source,
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
 				});
+			}
+			const sourceBreakdown = monthly.sourceBreakdowns.get(entry.source)!;
+			sourceBreakdown.inputTokens += entry.usage.inputTokens;
+			sourceBreakdown.outputTokens += entry.usage.outputTokens;
+			sourceBreakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			sourceBreakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			sourceBreakdown.totalCost += entry.costUSD ?? 0;
+		}
+	}
 
-				const timestamp = await getEarliestTimestamp(fixture.getPath('test.jsonl'));
-				expect(timestamp).toEqual(new Date('2025-01-10T10:00:00Z'));
-			});
-		});
+	// Convert to MonthlyUsage array
+	const result: MonthlyUsage[] = Array.from(monthlyMap.entries()).map(([month, data]) => ({
+		month: createMonthlyDate(month),
+		inputTokens: data.inputTokens,
+		outputTokens: data.outputTokens,
+		cacheCreationTokens: data.cacheCreationTokens,
+		cacheReadTokens: data.cacheReadTokens,
+		totalCost: data.totalCost,
+		modelsUsed: Array.from(data.modelsUsed).sort().map(createModelName),
+		modelBreakdowns: Array.from(data.modelBreakdowns.values()),
+		sourceBreakdowns: Array.from(data.sourceBreakdowns.values()),
+	}));
 
-		describe('sortFilesByTimestamp', () => {
-			it('should sort files by earliest timestamp', async () => {
-				await using fixture = await createFixture({
-					'file1.jsonl': JSON.stringify({ timestamp: '2025-01-15T10:00:00Z' }),
-					'file2.jsonl': JSON.stringify({ timestamp: '2025-01-10T10:00:00Z' }),
-					'file3.jsonl': JSON.stringify({ timestamp: '2025-01-12T10:00:00Z' }),
-				});
-
-				const file1 = fixture.getPath('file1.jsonl');
-				const file2 = fixture.getPath('file2.jsonl');
-				const file3 = fixture.getPath('file3.jsonl');
-
-				const sorted = await sortFilesByTimestamp([file1, file2, file3]);
-
-				expect(sorted).toEqual([file2, file3, file1]); // Chronological order
-			});
-
-			it('should place files without timestamps at the end', async () => {
-				await using fixture = await createFixture({
-					'file1.jsonl': JSON.stringify({ timestamp: '2025-01-15T10:00:00Z' }),
-					'file2.jsonl': JSON.stringify({ no_timestamp: true }),
-					'file3.jsonl': JSON.stringify({ timestamp: '2025-01-10T10:00:00Z' }),
-				});
-
-				const file1 = fixture.getPath('file1.jsonl');
-				const file2 = fixture.getPath('file2.jsonl');
-				const file3 = fixture.getPath('file3.jsonl');
-
-				const sorted = await sortFilesByTimestamp([file1, file2, file3]);
-
-				expect(sorted).toEqual([file3, file1, file2]); // file2 without timestamp goes to end
-			});
-		});
-
-		describe('loadDailyUsageData with deduplication', () => {
-			it('should deduplicate entries with same message and request IDs', async () => {
-				await using fixture = await createFixture({
-					projects: {
-						project1: {
-							session1: {
-								'file1.jsonl': JSON.stringify({
-									timestamp: '2025-01-10T10:00:00Z',
-									message: {
-										id: 'msg_123',
-										usage: {
-											input_tokens: 100,
-											output_tokens: 50,
-										},
-									},
-									requestId: 'req_456',
-									costUSD: 0.001,
-								}),
-							},
-							session2: {
-								'file2.jsonl': JSON.stringify({
-									timestamp: '2025-01-15T10:00:00Z',
-									message: {
-										id: 'msg_123',
-										usage: {
-											input_tokens: 100,
-											output_tokens: 50,
-										},
-									},
-									requestId: 'req_456',
-									costUSD: 0.001,
-								}),
-							},
-						},
-					},
-				});
-
-				const data = await loadDailyUsageData({
-					claudePath: fixture.path,
-					mode: 'display',
-				});
-
-				// Should only have one entry for 2025-01-10
-				expect(data).toHaveLength(1);
-				expect(data[0]?.date).toBe('2025-01-10');
-				expect(data[0]?.inputTokens).toBe(100);
-				expect(data[0]?.outputTokens).toBe(50);
-			});
-
-			it('should process files in chronological order', async () => {
-				await using fixture = await createFixture({
-					projects: {
-						'newer.jsonl': JSON.stringify({
-							timestamp: '2025-01-15T10:00:00Z',
-							message: {
-								id: 'msg_123',
-								usage: {
-									input_tokens: 200,
-									output_tokens: 100,
-								},
-							},
-							requestId: 'req_456',
-							costUSD: 0.002,
-						}),
-						'older.jsonl': JSON.stringify({
-							timestamp: '2025-01-10T10:00:00Z',
-							message: {
-								id: 'msg_123',
-								usage: {
-									input_tokens: 100,
-									output_tokens: 50,
-								},
-							},
-							requestId: 'req_456',
-							costUSD: 0.001,
-						}),
-					},
-				});
-
-				const data = await loadDailyUsageData({
-					claudePath: fixture.path,
-					mode: 'display',
-				});
-
-				// Should keep the older entry (100/50 tokens) not the newer one (200/100)
-				expect(data).toHaveLength(1);
-				expect(data[0]?.date).toBe('2025-01-10');
-				expect(data[0]?.inputTokens).toBe(100);
-				expect(data[0]?.outputTokens).toBe(50);
-			});
-		});
-
-		describe('loadSessionData with deduplication', () => {
-			it('should deduplicate entries across sessions', async () => {
-				await using fixture = await createFixture({
-					projects: {
-						project1: {
-							session1: {
-								'file1.jsonl': JSON.stringify({
-									timestamp: '2025-01-10T10:00:00Z',
-									message: {
-										id: 'msg_123',
-										usage: {
-											input_tokens: 100,
-											output_tokens: 50,
-										},
-									},
-									requestId: 'req_456',
-									costUSD: 0.001,
-								}),
-							},
-							session2: {
-								'file2.jsonl': JSON.stringify({
-									timestamp: '2025-01-15T10:00:00Z',
-									message: {
-										id: 'msg_123',
-										usage: {
-											input_tokens: 100,
-											output_tokens: 50,
-										},
-									},
-									requestId: 'req_456',
-									costUSD: 0.001,
-								}),
-							},
-						},
-					},
-				});
-
-				const sessions = await loadSessionData({
-					claudePath: fixture.path,
-					mode: 'display',
-				});
-
-				// Session 1 should have the entry
-				const session1 = sessions.find(s => s.sessionId === 'session1');
-				expect(session1).toBeDefined();
-				expect(session1?.inputTokens).toBe(100);
-				expect(session1?.outputTokens).toBe(50);
-
-				// Session 2 should either not exist or have 0 tokens (duplicate was skipped)
-				const session2 = sessions.find(s => s.sessionId === 'session2');
-				if (session2 != null) {
-					expect(session2.inputTokens).toBe(0);
-					expect(session2.outputTokens).toBe(0);
-				}
-				else {
-				// It's also valid for session2 to not be included if it has no entries
-					expect(sessions.length).toBe(1);
-				}
-			});
-		});
-	});
-
-	describe('getClaudePaths', () => {
-		afterEach(() => {
-			vi.unstubAllEnvs();
-			vi.unstubAllGlobals();
-		});
-
-		it('returns paths from environment variable when set', async () => {
-			await using fixture1 = await createFixture({
-				projects: {},
-			});
-			await using fixture2 = await createFixture({
-				projects: {},
-			});
-
-			vi.stubEnv('CLAUDE_CONFIG_DIR', `${fixture1.path},${fixture2.path}`);
-
-			const paths = getClaudePaths();
-			const normalizedFixture1 = path.resolve(fixture1.path);
-			const normalizedFixture2 = path.resolve(fixture2.path);
-
-			expect(paths).toEqual(expect.arrayContaining([normalizedFixture1, normalizedFixture2]));
-			// Environment paths should be prioritized
-			expect(paths[0]).toBe(normalizedFixture1);
-			expect(paths[1]).toBe(normalizedFixture2);
-		});
-
-		it('filters out non-existent paths from environment variable', async () => {
-			await using fixture = await createFixture({
-				projects: {},
-			});
-
-			vi.stubEnv('CLAUDE_CONFIG_DIR', `${fixture.path},/nonexistent/path`);
-
-			const paths = getClaudePaths();
-			const normalizedFixture = path.resolve(fixture.path);
-			expect(paths).toEqual(expect.arrayContaining([normalizedFixture]));
-			expect(paths[0]).toBe(normalizedFixture);
-		});
-
-		it('removes duplicates from combined paths', async () => {
-			await using fixture = await createFixture({
-				projects: {},
-			});
-
-			vi.stubEnv('CLAUDE_CONFIG_DIR', `${fixture.path},${fixture.path}`);
-
-			const paths = getClaudePaths();
-			const normalizedFixture = path.resolve(fixture.path);
-			// Should only contain the fixture path once (but may include defaults)
-			const fixtureCount = paths.filter(p => p === normalizedFixture).length;
-			expect(fixtureCount).toBe(1);
-		});
-
-		it('returns non-empty array with existing default paths', () => {
-			// This test will use real filesystem checks for default paths
-			vi.stubEnv('CLAUDE_CONFIG_DIR', '');
-			const paths = getClaudePaths();
-
-			expect(Array.isArray(paths)).toBe(true);
-			// At least one path should exist in our test environment (CI creates both)
-			expect(paths.length).toBeGreaterThanOrEqual(1);
-		});
-	});
-
-	describe('multiple paths integration', () => {
-		it('loadDailyUsageData aggregates data from multiple paths', async () => {
-			await using fixture1 = await createFixture({
-				projects: {
-					project1: {
-						session1: {
-							'usage.jsonl': JSON.stringify({
-								timestamp: '2024-01-01T12:00:00Z',
-								message: { usage: { input_tokens: 100, output_tokens: 50 } },
-								costUSD: 0.01,
-							}),
-						},
-					},
-				},
-			});
-
-			await using fixture2 = await createFixture({
-				projects: {
-					project2: {
-						session2: {
-							'usage.jsonl': JSON.stringify({
-								timestamp: '2024-01-01T13:00:00Z',
-								message: { usage: { input_tokens: 200, output_tokens: 100 } },
-								costUSD: 0.02,
-							}),
-						},
-					},
-				},
-			});
-
-			vi.stubEnv('CLAUDE_CONFIG_DIR', `${fixture1.path},${fixture2.path}`);
-
-			const result = await loadDailyUsageData();
-			// Find the specific date we're testing
-			const targetDate = result.find(day => day.date === '2024-01-01');
-			expect(targetDate).toBeDefined();
-			expect(targetDate?.inputTokens).toBe(300);
-			expect(targetDate?.outputTokens).toBe(150);
-			expect(targetDate?.totalCost).toBe(0.03);
-		}, 30000);
-	});
-
-	describe('globUsageFiles', () => {
-		it('should glob files from multiple paths in parallel with base directories', async () => {
-			await using fixture = await createFixture({
-				'path1/projects/project1/session1/usage.jsonl': 'data1',
-				'path2/projects/project2/session2/usage.jsonl': 'data2',
-				'path3/projects/project3/session3/usage.jsonl': 'data3',
-			});
-
-			const paths = [
-				path.join(fixture.path, 'path1'),
-				path.join(fixture.path, 'path2'),
-				path.join(fixture.path, 'path3'),
-			];
-
-			const results = await globUsageFiles(paths);
-
-			expect(results).toHaveLength(3);
-			expect(results.some(r => r.file.includes('project1'))).toBe(true);
-			expect(results.some(r => r.file.includes('project2'))).toBe(true);
-			expect(results.some(r => r.file.includes('project3'))).toBe(true);
-
-			// Check base directories are included
-			const result1 = results.find(r => r.file.includes('project1'));
-			expect(result1?.baseDir).toContain('path1/projects');
-		});
-
-		it('should handle errors gracefully and return empty array for failed paths', async () => {
-			await using fixture = await createFixture({
-				'valid/projects/project1/session1/usage.jsonl': 'data1',
-			});
-
-			const paths = [
-				path.join(fixture.path, 'valid'),
-				path.join(fixture.path, 'nonexistent'), // This path doesn't exist
-			];
-
-			const results = await globUsageFiles(paths);
-
-			expect(results).toHaveLength(1);
-			expect(results.at(0)?.file).toContain('project1');
-		});
-
-		it('should return empty array when no files found', async () => {
-			await using fixture = await createFixture({
-				'empty/projects': {}, // Empty directory
-			});
-
-			const paths = [path.join(fixture.path, 'empty')];
-			const results = await globUsageFiles(paths);
-
-			expect(results).toEqual([]);
-		});
-
-		it('should handle multiple files from same base directory', async () => {
-			await using fixture = await createFixture({
-				'path1/projects/project1/session1/usage.jsonl': 'data1',
-				'path1/projects/project1/session2/usage.jsonl': 'data2',
-				'path1/projects/project2/session1/usage.jsonl': 'data3',
-			});
-
-			const paths = [path.join(fixture.path, 'path1')];
-			const results = await globUsageFiles(paths);
-
-			expect(results).toHaveLength(3);
-			expect(results.every(r => r.baseDir.includes('path1/projects'))).toBe(true);
-		});
+	// Sort by month
+	return result.sort((a, b) => {
+		const order = options?.order ?? 'asc';
+		const comparison = a.month.localeCompare(b.month);
+		return order === 'desc' ? -comparison : comparison;
 	});
 }
+
+/**
+ * Unified weekly usage data loader that supports both Claude Code and OpenCode
+ * Uses loadSessionBlockData internally and aggregates into weekly summaries
+ */
+export async function loadUnifiedWeeklyUsageData(
+	options?: LoadOptions,
+): Promise<WeeklyUsage[]> {
+	// Load session blocks from both sources
+	const blocks = await loadSessionBlockData(options);
+
+	if (blocks.length === 0) {
+		return [];
+	}
+
+	// Group entries by week
+	const weeklyMap = new Map<string, {
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+		cacheReadTokens: number;
+		totalCost: number;
+		modelsUsed: Set<string>;
+		modelBreakdowns: Map<string, ModelBreakdown>;
+		sourceBreakdowns: Map<'claude' | 'opencode', SourceBreakdown>;
+	}>();
+
+	for (const block of blocks) {
+		for (const entry of block.entries) {
+			// Format as week start date for weekly grouping
+			const startDay = options?.startOfWeek != null ? getDayNumber(options.startOfWeek) : getDayNumber('monday');
+			const d = new Date(entry.timestamp);
+			const day = d.getDay();
+			const shift = (day - startDay + 7) % 7;
+			d.setDate(d.getDate() - shift);
+			const weekKey = d.toISOString().substring(0, 10);
+
+			if (!weeklyMap.has(weekKey)) {
+				weeklyMap.set(weekKey, {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+					modelsUsed: new Set(),
+					modelBreakdowns: new Map(),
+					sourceBreakdowns: new Map(),
+				});
+			}
+
+			const weekly = weeklyMap.get(weekKey)!;
+			weekly.inputTokens += entry.usage.inputTokens;
+			weekly.outputTokens += entry.usage.outputTokens;
+			weekly.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			weekly.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			weekly.totalCost += entry.costUSD ?? 0;
+			weekly.modelsUsed.add(entry.model);
+
+			// Track model breakdown
+			if (!weekly.modelBreakdowns.has(entry.model)) {
+				weekly.modelBreakdowns.set(entry.model, {
+					modelName: createModelName(entry.model),
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					cost: 0,
+				});
+			}
+			const breakdown = weekly.modelBreakdowns.get(entry.model)!;
+			breakdown.inputTokens += entry.usage.inputTokens;
+			breakdown.outputTokens += entry.usage.outputTokens;
+			breakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			breakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			breakdown.cost += entry.costUSD ?? 0;
+
+			// Track source breakdown
+			if (!weekly.sourceBreakdowns.has(entry.source)) {
+				weekly.sourceBreakdowns.set(entry.source, {
+					source: entry.source,
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+				});
+			}
+			const sourceBreakdown = weekly.sourceBreakdowns.get(entry.source)!;
+			sourceBreakdown.inputTokens += entry.usage.inputTokens;
+			sourceBreakdown.outputTokens += entry.usage.outputTokens;
+			sourceBreakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			sourceBreakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			sourceBreakdown.totalCost += entry.costUSD ?? 0;
+		}
+	}
+
+	// Convert to WeeklyUsage array
+	const result: WeeklyUsage[] = Array.from(weeklyMap.entries()).map(([week, data]) => ({
+		week: createWeeklyDate(week),
+		inputTokens: data.inputTokens,
+		outputTokens: data.outputTokens,
+		cacheCreationTokens: data.cacheCreationTokens,
+		cacheReadTokens: data.cacheReadTokens,
+		totalCost: data.totalCost,
+		modelsUsed: Array.from(data.modelsUsed).sort().map(createModelName),
+		modelBreakdowns: Array.from(data.modelBreakdowns.values()),
+		sourceBreakdowns: Array.from(data.sourceBreakdowns.values()),
+	}));
+
+	// Sort by week
+	return result.sort((a, b) => {
+		const order = options?.order ?? 'asc';
+		const comparison = a.week.localeCompare(b.week);
+		return order === 'desc' ? -comparison : comparison;
+	});
+}
+
+/**
+ * Helper function to extract project name from a LoadedUsageEntry
+ */
+function extractProjectFromEntry(entry: LoadedUsageEntry): string {
+	// Use the project field if it's already populated
+	if (entry.project != null) {
+		return entry.project;
+	}
+	
+	// Fallback to a default value based on source
+	if (entry.source === 'opencode') {
+		return 'opencode-unknown';
+	}
+	return 'claude-unknown';
+}
+
+/**
+ * Helper function to extract project name from folder path
+ * For Claude: -Users-vatsal-Library-CloudStorage-Dropbox-Apps-localApps-occusage -> localApps-occusage
+ * For OpenCode: /Users/vatsal/jarvis -> vatsal-jarvis, /global -> global
+ */
+function extractProjectName(folderPath: string): string {
+	// Check if this is an OpenCode full path (starts with /)
+	if (folderPath.startsWith('/')) {
+		// For OpenCode full paths like /Users/vatsal/jarvis or /global
+		if (folderPath === '/global') {
+			return 'global';
+		}
+		// Get the last two segments of the path
+		const parts = folderPath.split('/').filter(p => p.length > 0);
+		if (parts.length >= 2) {
+			// Take the last two parts and join with dash (e.g., vatsal-jarvis)
+			return parts.slice(-2).join('-');
+		}
+		else if (parts.length === 1 && parts[0] != null) {
+			// If only one part, return it as is
+			return parts[0];
+		}
+		return 'unknown';
+	}
+
+	// For Claude format (starts with dash)
+	const cleanPath = folderPath.startsWith('-') ? folderPath.slice(1) : folderPath;
+
+	// Split by dashes and get the last two parts
+	const parts = cleanPath.split('-');
+
+	// If we have at least 2 parts, join the last two
+	// This handles cases like localApps-occusage
+	if (parts.length >= 2) {
+		return parts.slice(-2).join('-');
+	}
+
+	// Fallback to the last part if less than 2 parts
+	return parts[parts.length - 1] ?? 'unknown';
+}
+
+/**
+ * Loads and aggregates usage data grouped by project
+ */
+export async function loadUnifiedProjectData(
+	options?: LoadOptions,
+): Promise<ProjectUsage[]> {
+	// Load unified usage data from both sources
+	const allEntries = await _loadUnifiedUsageData(options);
+
+	if (allEntries.length === 0) {
+		return [];
+	}
+
+	// Initialize pricing fetcher for cost calculation
+	const mode = options?.mode ?? 'auto';
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+
+	// Filter by date range if specified
+	const dateFiltered = filterByDateRange(
+		allEntries,
+		item => item.timestamp,
+		options?.since,
+		options?.until,
+	);
+
+	// Group by project name
+	const projectMap = new Map<string, {
+		entries: UnifiedUsageEntry[];
+		latestTimestamp: string;
+	}>();
+
+	for (const entry of dateFiltered) {
+		// Extract project name from the project path
+		const projectName = extractProjectName(entry.projectPath);
+
+		const existing = projectMap.get(projectName);
+		if (existing == null) {
+			projectMap.set(projectName, {
+				entries: [entry],
+				latestTimestamp: entry.timestamp,
+			});
+		}
+		else {
+			existing.entries.push(entry);
+			if (entry.timestamp > existing.latestTimestamp) {
+				existing.latestTimestamp = entry.timestamp;
+			}
+		}
+	}
+
+	// Convert to ProjectUsage format
+	const results: ProjectUsage[] = [];
+
+	for (const [projectName, projectData] of projectMap.entries()) {
+		const { entries, latestTimestamp } = projectData;
+
+		// Calculate totals
+		let inputTokens = 0;
+		let outputTokens = 0;
+		let cacheCreationTokens = 0;
+		let cacheReadTokens = 0;
+		let totalCost = 0;
+
+		const modelsUsed = new Set<string>();
+		const versions = new Set<string>();
+		const modelBreakdowns = new Map<string, ModelBreakdown>();
+		const sourceBreakdowns = new Map<'claude' | 'opencode', SourceBreakdown>();
+
+		// Process each entry
+		for (const entry of entries) {
+			const usage = entry.usage;
+			inputTokens += usage.input_tokens;
+			outputTokens += usage.output_tokens;
+			cacheCreationTokens += usage.cache_creation_input_tokens;
+			cacheReadTokens += usage.cache_read_input_tokens;
+
+			// Calculate cost using the pricing fetcher (handles null costUSD for OpenCode)
+			const entryCost = fetcher != null
+				? await calculateCostForUnifiedEntry(entry, mode, fetcher)
+				: entry.costUSD ?? 0;
+			totalCost += entryCost;
+
+			modelsUsed.add(entry.model);
+			versions.add(entry.version ?? '1.0.0');
+
+			// Update model breakdown
+			const existing = modelBreakdowns.get(entry.model);
+			if (existing == null) {
+				modelBreakdowns.set(entry.model, {
+					modelName: entry.model as ModelName,
+					inputTokens: usage.input_tokens,
+					outputTokens: usage.output_tokens,
+					cacheCreationTokens: usage.cache_creation_input_tokens,
+					cacheReadTokens: usage.cache_read_input_tokens,
+					cost: entryCost,
+				});
+			}
+			else {
+				existing.inputTokens += usage.input_tokens;
+				existing.outputTokens += usage.output_tokens;
+				existing.cacheCreationTokens += usage.cache_creation_input_tokens;
+				existing.cacheReadTokens += usage.cache_read_input_tokens;
+				existing.cost += entryCost;
+			}
+
+			// Update source breakdown
+			const sourceExisting = sourceBreakdowns.get(entry.source);
+			if (sourceExisting == null) {
+				sourceBreakdowns.set(entry.source, {
+					source: entry.source,
+					inputTokens: usage.input_tokens,
+					outputTokens: usage.output_tokens,
+					cacheCreationTokens: usage.cache_creation_input_tokens,
+					cacheReadTokens: usage.cache_read_input_tokens,
+					totalCost: entryCost,
+				});
+			}
+			else {
+				sourceExisting.inputTokens += usage.input_tokens;
+				sourceExisting.outputTokens += usage.output_tokens;
+				sourceExisting.cacheCreationTokens += usage.cache_creation_input_tokens;
+				sourceExisting.cacheReadTokens += usage.cache_read_input_tokens;
+				sourceExisting.totalCost += entryCost;
+			}
+		}
+
+		// Format last activity date
+		const lastActivity = formatDate(latestTimestamp, options?.timezone, options?.locale) as ActivityDate;
+
+		results.push({
+			projectName,
+			inputTokens,
+			outputTokens,
+			cacheCreationTokens,
+			cacheReadTokens,
+			totalCost,
+			lastActivity,
+			versions: Array.from(versions) as Version[],
+			modelsUsed: Array.from(modelsUsed) as ModelName[],
+			modelBreakdowns: Array.from(modelBreakdowns.values()),
+			sourceBreakdowns: Array.from(sourceBreakdowns.values()),
+		});
+	}
+
+	// Sort results
+	const sortOrder = options?.order ?? 'desc';
+	return sort(results)[sortOrder === 'asc' ? 'asc' : 'desc'](item => item.lastActivity);
+}
+

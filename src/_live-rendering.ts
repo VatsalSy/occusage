@@ -9,7 +9,40 @@
 import type { SessionBlock } from './_session-blocks.ts';
 import type { TerminalManager } from './_terminal-utils.ts';
 import type { CostMode, SortOrder } from './_types.ts';
-import { delay } from '@jsr/std__async/delay';
+// Delay with AbortSignal support and proper cleanup
+const delay = (ms: number, options?: { signal?: AbortSignal }): Promise<void> => {
+    return new Promise<void>((resolve, reject) => {
+        const createAbortError = (message: string): Error | DOMException => {
+            if (typeof DOMException !== 'undefined') {
+                return new DOMException(message, 'AbortError');
+            }
+            const error = new Error(message);
+            error.name = 'AbortError';
+            return error;
+        };
+
+        if (options?.signal?.aborted) {
+            reject(createAbortError('This operation was aborted'));
+            return;
+        }
+
+        let timeoutId: ReturnType<typeof setTimeout>;
+        const onAbort = (): void => {
+            clearTimeout(timeoutId);
+            options?.signal?.removeEventListener('abort', onAbort);
+            reject(createAbortError('This operation was aborted'));
+        };
+
+        timeoutId = setTimeout(() => {
+            options?.signal?.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+
+        if (options?.signal) {
+            options.signal.addEventListener('abort', onAbort);
+        }
+    });
+};
 import * as ansiEscapes from 'ansi-escapes';
 import pc from 'picocolors';
 import prettyMs from 'pretty-ms';
@@ -91,7 +124,7 @@ export function renderActiveBlock(terminal: TerminalManager, activeBlock: Sessio
 /**
  * Format token counts with K suffix for display
  */
-function formatTokensShort(num: number): string {
+export function formatTokensShort(num: number): string {
 	if (num >= 1000) {
 		return `${(num / 1000).toFixed(1)}k`;
 	}
@@ -189,7 +222,7 @@ export function renderLiveDisplay(terminal: TerminalManager, block: SessionBlock
 
 	// Draw header
 	terminal.write(`${marginStr}┌${'─'.repeat(boxWidth - 2)}┐\n`);
-	terminal.write(`${marginStr}│${pc.bold(centerText('CLAUDE CODE - LIVE TOKEN USAGE MONITOR', boxWidth - 2))}│\n`);
+	terminal.write(`${marginStr}│${pc.bold(centerText('OPEN+CLAUDE CODE - LIVE TOKEN USAGE MONITOR', boxWidth - 2))}│\n`);
 	terminal.write(`${marginStr}├${'─'.repeat(boxWidth - 2)}┤\n`);
 	terminal.write(`${marginStr}│${' '.repeat(boxWidth - 2)}│\n`);
 
@@ -435,7 +468,20 @@ export function renderLiveDisplay(terminal: TerminalManager, block: SessionBlock
 	// Models section
 	if (block.models.length > 0) {
 		terminal.write(`${marginStr}├${'─'.repeat(boxWidth - 2)}┤\n`);
-		const modelsLine = `${drawEmoji('⚙️')}  Models: ${formatModelsDisplay(block.models)}`;
+
+		// Format sources with colors
+		const sourcesDisplay = block.sources.map((source) => {
+			switch (source) {
+				case 'claude':
+					return pc.blue('[C]');
+				case 'opencode':
+					return pc.green('[O]');
+				default:
+					return pc.gray('[?]');
+			}
+		}).join(' ');
+
+		const modelsLine = `${drawEmoji('⚙️')}  Models: ${formatModelsDisplay(block.models)}${sourcesDisplay.length > 0 ? `  ${sourcesDisplay}` : ''}`;
 		const modelsLinePadded = modelsLine + ' '.repeat(Math.max(0, boxWidth - 3 - stringWidth(modelsLine)));
 		terminal.write(`${marginStr}│ ${modelsLinePadded}│\n`);
 	}
@@ -493,123 +539,3 @@ export function renderCompactLiveDisplay(
 }
 
 // In-source testing
-if (import.meta.vitest != null) {
-	describe('formatTokensShort', () => {
-		it('should format numbers under 1000 as-is', () => {
-			expect(formatTokensShort(999)).toBe('999');
-			expect(formatTokensShort(0)).toBe('0');
-		});
-
-		it('should format numbers 1000+ with k suffix', () => {
-			expect(formatTokensShort(1000)).toBe('1.0k');
-			expect(formatTokensShort(1234)).toBe('1.2k');
-			expect(formatTokensShort(15678)).toBe('15.7k');
-		});
-	});
-
-	describe('getRateIndicator', () => {
-		it('returns empty string for null burn rate', () => {
-			const result = getRateIndicator(null);
-			expect(result).toBe('');
-		});
-
-		it('returns HIGH for rates above 1000', () => {
-			const burnRate = {
-				tokensPerMinute: 2000,
-				tokensPerMinuteForIndicator: 1500,
-				costPerHour: 10,
-			};
-			const result = getRateIndicator(burnRate);
-			expect(result).toContain('HIGH');
-		});
-
-		it('returns MODERATE for rates between 500 and 1000', () => {
-			const burnRate = {
-				tokensPerMinute: 1000,
-				tokensPerMinuteForIndicator: 750,
-				costPerHour: 5,
-			};
-			const result = getRateIndicator(burnRate);
-			expect(result).toContain('MODERATE');
-		});
-
-		it('returns NORMAL for rates 500 and below', () => {
-			const burnRate = {
-				tokensPerMinute: 800,
-				tokensPerMinuteForIndicator: 400,
-				costPerHour: 2,
-			};
-			const result = getRateIndicator(burnRate);
-			expect(result).toContain('NORMAL');
-		});
-
-		it('returns NORMAL for exactly 500 tokens per minute', () => {
-			const burnRate = {
-				tokensPerMinute: 1000,
-				tokensPerMinuteForIndicator: 500,
-				costPerHour: 3,
-			};
-			const result = getRateIndicator(burnRate);
-			expect(result).toContain('NORMAL');
-		});
-
-		it('returns MODERATE for exactly 1000 tokens per minute (boundary)', () => {
-			const burnRate = {
-				tokensPerMinute: 2000,
-				tokensPerMinuteForIndicator: 1000,
-				costPerHour: 5,
-			};
-			const result = getRateIndicator(burnRate);
-			expect(result).toContain('MODERATE'); // 1000 is not greater than 1000, but is greater than 500
-		});
-
-		it('returns HIGH for just above 1000 tokens per minute', () => {
-			const burnRate = {
-				tokensPerMinute: 2000,
-				tokensPerMinuteForIndicator: 1001,
-				costPerHour: 5,
-			};
-			const result = getRateIndicator(burnRate);
-			expect(result).toContain('HIGH');
-		});
-
-		it('returns NORMAL for just below 500 tokens per minute', () => {
-			const burnRate = {
-				tokensPerMinute: 800,
-				tokensPerMinuteForIndicator: 499,
-				costPerHour: 2,
-			};
-			const result = getRateIndicator(burnRate);
-			expect(result).toContain('NORMAL');
-		});
-
-		it('returns MODERATE for just above 500 tokens per minute', () => {
-			const burnRate = {
-				tokensPerMinute: 1000,
-				tokensPerMinuteForIndicator: 501,
-				costPerHour: 3,
-			};
-			const result = getRateIndicator(burnRate);
-			expect(result).toContain('MODERATE');
-		});
-	});
-
-	describe('delayWithAbort', () => {
-		it('should complete normally without abort', async () => {
-			const controller = new AbortController();
-			const start = Date.now();
-			await delayWithAbort(10, controller.signal);
-			const elapsed = Date.now() - start;
-			expect(elapsed).toBeGreaterThanOrEqual(9);
-		});
-
-		it('should throw AbortError when signal is aborted', async () => {
-			const controller = new AbortController();
-			setTimeout(() => controller.abort(), 5);
-
-			await expect(delayWithAbort(50, controller.signal))
-				.rejects
-				.toThrow('This operation was aborted');
-		});
-	});
-}

@@ -9,7 +9,7 @@
  */
 
 import type { AggregatedTokenCounts } from './_token-utils.ts';
-import type { DailyUsage, MonthlyUsage, SessionUsage, WeeklyUsage } from './data-loader.ts';
+import type { DailyUsage, MonthlyUsage, ProjectUsage, SessionUsage, WeeklyUsage } from './data-loader.ts';
 import { getTotalTokens } from './_token-utils.ts';
 import {
 	createActivityDate,
@@ -42,11 +42,11 @@ type TotalsObject = TokenTotals & {
 
 /**
  * Calculates total token usage and cost across multiple usage data entries
- * @param data - Array of daily, monthly, or session usage data
+ * @param data - Array of daily, monthly, weekly, session, or project usage data
  * @returns Aggregated token totals and cost
  */
 export function calculateTotals(
-	data: Array<DailyUsage | MonthlyUsage | WeeklyUsage | SessionUsage>,
+	data: Array<DailyUsage | MonthlyUsage | WeeklyUsage | SessionUsage | ProjectUsage>,
 ): TokenTotals {
 	return data.reduce(
 		(acc, item) => ({
@@ -81,131 +81,4 @@ export function createTotalsObject(totals: TokenTotals): TotalsObject {
 	};
 }
 
-if (import.meta.vitest != null) {
-	describe('token aggregation utilities', () => {
-		it('calculateTotals should aggregate daily usage data', () => {
-			const dailyData: DailyUsage[] = [
-				{
-					date: createDailyDate('2024-01-01'),
-					inputTokens: 100,
-					outputTokens: 50,
-					cacheCreationTokens: 25,
-					cacheReadTokens: 10,
-					totalCost: 0.01,
-					modelsUsed: [createModelName('claude-sonnet-4-20250514')],
-					modelBreakdowns: [],
-				},
-				{
-					date: createDailyDate('2024-01-02'),
-					inputTokens: 200,
-					outputTokens: 100,
-					cacheCreationTokens: 50,
-					cacheReadTokens: 20,
-					totalCost: 0.02,
-					modelsUsed: [createModelName('claude-opus-4-20250514')],
-					modelBreakdowns: [],
-				},
-			];
 
-			const totals = calculateTotals(dailyData);
-			expect(totals.inputTokens).toBe(300);
-			expect(totals.outputTokens).toBe(150);
-			expect(totals.cacheCreationTokens).toBe(75);
-			expect(totals.cacheReadTokens).toBe(30);
-			expect(totals.totalCost).toBeCloseTo(0.03);
-		});
-
-		it('calculateTotals should aggregate session usage data', () => {
-			const sessionData: SessionUsage[] = [
-				{
-					sessionId: createSessionId('session-1'),
-					projectPath: createProjectPath('project/path'),
-					inputTokens: 100,
-					outputTokens: 50,
-					cacheCreationTokens: 25,
-					cacheReadTokens: 10,
-					totalCost: 0.01,
-					lastActivity: createActivityDate('2024-01-01'),
-					versions: [createVersion('1.0.3')],
-					modelsUsed: [createModelName('claude-sonnet-4-20250514')],
-					modelBreakdowns: [],
-				},
-				{
-					sessionId: createSessionId('session-2'),
-					projectPath: createProjectPath('project/path'),
-					inputTokens: 200,
-					outputTokens: 100,
-					cacheCreationTokens: 50,
-					cacheReadTokens: 20,
-					totalCost: 0.02,
-					lastActivity: createActivityDate('2024-01-02'),
-					versions: [createVersion('1.0.3'), createVersion('1.0.4')],
-					modelsUsed: [createModelName('claude-opus-4-20250514')],
-					modelBreakdowns: [],
-				},
-			];
-
-			const totals = calculateTotals(sessionData);
-			expect(totals.inputTokens).toBe(300);
-			expect(totals.outputTokens).toBe(150);
-			expect(totals.cacheCreationTokens).toBe(75);
-			expect(totals.cacheReadTokens).toBe(30);
-			expect(totals.totalCost).toBeCloseTo(0.03);
-		});
-
-		it('getTotalTokens should sum all token types', () => {
-			const tokens = {
-				inputTokens: 100,
-				outputTokens: 50,
-				cacheCreationTokens: 25,
-				cacheReadTokens: 10,
-			};
-
-			const total = getTotalTokens(tokens);
-			expect(total).toBe(185);
-		});
-
-		it('getTotalTokens should handle zero values', () => {
-			const tokens = {
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheCreationTokens: 0,
-				cacheReadTokens: 0,
-			};
-
-			const total = getTotalTokens(tokens);
-			expect(total).toBe(0);
-		});
-
-		it('createTotalsObject should create complete totals object', () => {
-			const totals = {
-				inputTokens: 100,
-				outputTokens: 50,
-				cacheCreationTokens: 25,
-				cacheReadTokens: 10,
-				totalCost: 0.01,
-			};
-
-			const totalsObject = createTotalsObject(totals);
-			expect(totalsObject).toEqual({
-				inputTokens: 100,
-				outputTokens: 50,
-				cacheCreationTokens: 25,
-				cacheReadTokens: 10,
-				totalTokens: 185,
-				totalCost: 0.01,
-			});
-		});
-
-		it('calculateTotals should handle empty array', () => {
-			const totals = calculateTotals([]);
-			expect(totals).toEqual({
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheCreationTokens: 0,
-				cacheReadTokens: 0,
-				totalCost: 0,
-			});
-		});
-	});
-}

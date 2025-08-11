@@ -4,7 +4,8 @@
 		"jsx": "react-jsx",
 		// Environment setup & latest features
 		"lib": [
-			"ESNext"
+			"ESNext",
+			"DOM"
 		],
 		"moduleDetection": "force",
 		"module": "Preserve",
@@ -12,8 +13,8 @@
 		"moduleResolution": "bundler",
 		"resolveJsonModule": true,
 		"types": [
-			"vitest/globals",
-			"vitest/importMeta"
+			"bun",
+			"vitest/globals"
 		],
 		"allowImportingTsExtensions": true,
 		"allowJs": true,

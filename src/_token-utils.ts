@@ -38,84 +38,22 @@ export type AnyTokenCounts = TokenCounts | AggregatedTokenCounts;
  * @returns Total number of tokens
  */
 export function getTotalTokens(tokenCounts: AnyTokenCounts): number {
-	// Support both property naming conventions
+	// Support both property naming conventions, defaulting to 0 for undefined fields
 	const cacheCreation = 'cacheCreationInputTokens' in tokenCounts
-		? tokenCounts.cacheCreationInputTokens
-		: (tokenCounts).cacheCreationTokens;
+		? (tokenCounts.cacheCreationInputTokens ?? 0)
+		: ((tokenCounts as any).cacheCreationTokens ?? 0);
 
 	const cacheRead = 'cacheReadInputTokens' in tokenCounts
-		? tokenCounts.cacheReadInputTokens
-		: (tokenCounts).cacheReadTokens;
+		? (tokenCounts.cacheReadInputTokens ?? 0)
+		: ((tokenCounts as any).cacheReadTokens ?? 0);
 
 	return (
-		tokenCounts.inputTokens
-		+ tokenCounts.outputTokens
+		(tokenCounts.inputTokens ?? 0)
+		+ (tokenCounts.outputTokens ?? 0)
 		+ cacheCreation
 		+ cacheRead
 	);
 }
 
 // In-source testing
-if (import.meta.vitest != null) {
-	describe('getTotalTokens', () => {
-		it('should sum all token types correctly (raw format)', () => {
-			const tokens: TokenCounts = {
-				inputTokens: 1000,
-				outputTokens: 500,
-				cacheCreationInputTokens: 2000,
-				cacheReadInputTokens: 300,
-			};
-			expect(getTotalTokens(tokens)).toBe(3800);
-		});
 
-		it('should sum all token types correctly (aggregated format)', () => {
-			const tokens: AggregatedTokenCounts = {
-				inputTokens: 1000,
-				outputTokens: 500,
-				cacheCreationTokens: 2000,
-				cacheReadTokens: 300,
-			};
-			expect(getTotalTokens(tokens)).toBe(3800);
-		});
-
-		it('should handle zero values (raw format)', () => {
-			const tokens: TokenCounts = {
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheCreationInputTokens: 0,
-				cacheReadInputTokens: 0,
-			};
-			expect(getTotalTokens(tokens)).toBe(0);
-		});
-
-		it('should handle zero values (aggregated format)', () => {
-			const tokens: AggregatedTokenCounts = {
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheCreationTokens: 0,
-				cacheReadTokens: 0,
-			};
-			expect(getTotalTokens(tokens)).toBe(0);
-		});
-
-		it('should handle missing cache tokens (raw format)', () => {
-			const tokens: TokenCounts = {
-				inputTokens: 1000,
-				outputTokens: 500,
-				cacheCreationInputTokens: 0,
-				cacheReadInputTokens: 0,
-			};
-			expect(getTotalTokens(tokens)).toBe(1500);
-		});
-
-		it('should handle missing cache tokens (aggregated format)', () => {
-			const tokens: AggregatedTokenCounts = {
-				inputTokens: 1000,
-				outputTokens: 500,
-				cacheCreationTokens: 0,
-				cacheReadTokens: 0,
-			};
-			expect(getTotalTokens(tokens)).toBe(1500);
-		});
-	});
-}

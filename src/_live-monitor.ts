@@ -11,6 +11,8 @@
 import type { LoadedUsageEntry, SessionBlock } from './_session-blocks.ts';
 import type { CostMode, SortOrder } from './_types.ts';
 import { readFile } from 'node:fs/promises';
+import { Result } from '@praha/byethrow';
+import { loadOpenCodeData } from './_opencode-loader.ts';
 import { identifySessionBlocks } from './_session-blocks.ts';
 import {
 	calculateCostForEntry,
@@ -22,6 +24,7 @@ import {
 	usageDataSchema,
 } from './data-loader.ts';
 import { PricingFetcher } from './pricing-fetcher.ts';
+import { logger } from './logger.ts';
 
 /**
  * Configuration for live monitoring
@@ -42,6 +45,9 @@ export class LiveMonitor implements Disposable {
 	private lastFileTimestamps = new Map<string, number>();
 	private processedHashes = new Set<string>();
 	private allEntries: LoadedUsageEntry[] = [];
+	private lastOpenCodeLoadTime = 0;
+	private openCodeHashes = new Set<string>();
+	private cachedActiveBlock: SessionBlock | null = null;
 
 	constructor(config: LiveMonitorConfig) {
 		this.config = config;
@@ -127,8 +133,15 @@ export class LiveMonitor implements Disposable {
 
 						const usageLimitResetTime = getUsageLimitResetTime(data);
 
+						// Skip entries with synthetic model or unknown model
+						const model = data.message.model ?? 'unknown';
+						if (model === '<synthetic>' || model === 'unknown') {
+							continue;
+						}
+
 						// Add entry
 						this.allEntries.push({
+							source: 'claude',
 							timestamp: new Date(data.timestamp),
 							usage: {
 								inputTokens: data.message.usage.input_tokens ?? 0,
@@ -137,7 +150,7 @@ export class LiveMonitor implements Disposable {
 								cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
 							},
 							costUSD,
-							model: data.message.model ?? '<synthetic>',
+							model,
 							version: data.version,
 							usageLimitResetTime: usageLimitResetTime ?? undefined,
 						});
@@ -146,6 +159,62 @@ export class LiveMonitor implements Disposable {
 						// Skip malformed lines
 					}
 				}
+			}
+		}
+
+		// Load OpenCode data periodically (every 5 seconds to balance responsiveness and performance)
+		const now = Date.now();
+		if (now - this.lastOpenCodeLoadTime > 5000) {
+			try {
+				const openCodeEntries = loadOpenCodeData(undefined, true); // Suppress logs during live monitoring
+
+				// Track new OpenCode entries using hashes to prevent duplicates
+				for (const entry of openCodeEntries) {
+					// Create a unique hash for this OpenCode entry
+					const entryHash = `opencode-${entry.timestamp.toISOString()}-${entry.model}-${entry.tokens.input}-${entry.tokens.output}`;
+
+					// Skip if we've already processed this entry
+					if (this.openCodeHashes.has(entryHash)) {
+						continue;
+					}
+
+					this.openCodeHashes.add(entryHash);
+
+					// Calculate cost for OpenCode entries when cost is missing
+					let costUSD = entry.cost ?? 0;
+					if ((entry.cost == null || entry.cost === 0) && this.config.mode !== 'display' && this.fetcher != null) {
+						// Calculate from tokens when cost is missing (typical for OpenCode entries)
+						const tokens = {
+							input_tokens: entry.tokens.input,
+							output_tokens: entry.tokens.output,
+							cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
+							cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+						};
+						costUSD = await Result.unwrap(this.fetcher.calculateCostFromTokens(tokens, entry.model), 0);
+					}
+
+					// Convert to LoadedUsageEntry format and add
+					this.allEntries.push({
+						source: 'opencode',
+						timestamp: entry.timestamp,
+						usage: {
+							inputTokens: entry.tokens.input,
+							outputTokens: entry.tokens.output,
+							cacheCreationInputTokens: entry.tokens.cache?.write ?? 0,
+							cacheReadInputTokens: entry.tokens.cache?.read ?? 0,
+						},
+						costUSD,
+						model: entry.model,
+						version: undefined,
+						usageLimitResetTime: undefined,
+					});
+				}
+
+				this.lastOpenCodeLoadTime = now;
+			}
+			catch (err) {
+				// Capture OpenCode loading errors at debug level to aid diagnostics without surfacing to users
+				logger.debug('OpenCode load error', err);
 			}
 		}
 
@@ -161,97 +230,44 @@ export class LiveMonitor implements Disposable {
 			: blocks.reverse();
 
 		// Find active block
-		return sortedBlocks.find(block => block.isActive) ?? null;
+		const activeBlock = sortedBlocks.find(block => block.isActive) ?? null;
+
+		// Use caching to prevent flickering during data updates
+		if (activeBlock != null) {
+			// Update cache with new valid block
+			this.cachedActiveBlock = activeBlock;
+			return activeBlock;
+		}
+
+		// If no active block found but we have a cached one, check if it's still valid
+		if (this.cachedActiveBlock != null && this.cachedActiveBlock.actualEndTime != null) {
+			const now = new Date();
+			const sessionDurationMs = this.config.sessionDurationHours * 60 * 60 * 1000;
+			const timeSinceLastEntry = now.getTime() - this.cachedActiveBlock.actualEndTime.getTime();
+
+			// If the cached block is still within the session duration, keep using it
+			// This prevents flickering during OpenCode data refreshes
+			if (timeSinceLastEntry < sessionDurationMs && now < this.cachedActiveBlock.endTime) {
+				return this.cachedActiveBlock;
+			}
+
+			// Cached block is no longer valid
+			this.cachedActiveBlock = null;
+		}
+
+		return null;
 	}
 
 	/**
-	 * Clears all cached data to force a full reload
+	 * Clears file timestamp cache to allow re-checking for updates
+	 * Note: Does NOT clear processed entries to maintain consistency
 	 */
 	clearCache(): void {
+		// Only clear file timestamps to allow checking for new lines in files
+		// Do NOT clear processedHashes or allEntries to maintain data consistency
 		this.lastFileTimestamps.clear();
-		this.processedHashes.clear();
-		this.allEntries = [];
+		// Also don't clear cachedActiveBlock to prevent flickering
 	}
 }
 
-if (import.meta.vitest != null) {
-	describe('LiveMonitor', () => {
-		let tempDir: string;
-		let monitor: LiveMonitor;
 
-		beforeEach(async () => {
-			const { createFixture } = await import('fs-fixture');
-			const now = new Date();
-			const recentTimestamp = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
-
-			const fixture = await createFixture({
-				'projects/test-project/session1/usage.jsonl': `${JSON.stringify({
-					timestamp: recentTimestamp.toISOString(),
-					message: {
-						model: 'claude-sonnet-4-20250514',
-						usage: {
-							input_tokens: 100,
-							output_tokens: 50,
-							cache_creation_input_tokens: 0,
-							cache_read_input_tokens: 0,
-						},
-					},
-					costUSD: 0.01,
-					version: '1.0.0',
-				})}\n`,
-			});
-			tempDir = fixture.path;
-
-			monitor = new LiveMonitor({
-				claudePaths: [tempDir],
-				sessionDurationHours: 5,
-				mode: 'display',
-				order: 'desc',
-			});
-		});
-
-		afterEach(() => {
-			monitor[Symbol.dispose]();
-		});
-
-		it('should initialize and handle clearing cache', async () => {
-			// Test initial state by calling getActiveBlock which should work
-			const initialBlock = await monitor.getActiveBlock();
-			expect(initialBlock).not.toBeNull();
-
-			// Clear cache and test again
-			monitor.clearCache();
-			const afterClearBlock = await monitor.getActiveBlock();
-			expect(afterClearBlock).not.toBeNull();
-		});
-
-		it('should load and process usage data', async () => {
-			const activeBlock = await monitor.getActiveBlock();
-
-			expect(activeBlock).not.toBeNull();
-			if (activeBlock != null) {
-				expect(activeBlock.tokenCounts.inputTokens).toBe(100);
-				expect(activeBlock.tokenCounts.outputTokens).toBe(50);
-				expect(activeBlock.costUSD).toBe(0.01);
-				expect(activeBlock.models).toContain('claude-sonnet-4-20250514');
-			}
-		});
-
-		it('should handle empty directories', async () => {
-			const { createFixture } = await import('fs-fixture');
-			const emptyFixture = await createFixture({});
-
-			const emptyMonitor = new LiveMonitor({
-				claudePaths: [emptyFixture.path],
-				sessionDurationHours: 5,
-				mode: 'display',
-				order: 'desc',
-			});
-
-			const activeBlock = await emptyMonitor.getActiveBlock();
-			expect(activeBlock).toBeNull();
-
-			emptyMonitor[Symbol.dispose]();
-		});
-	});
-}

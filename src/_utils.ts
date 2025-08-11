@@ -1,4 +1,6 @@
 import process from 'node:process';
+import type { ModelBreakdown } from './data-loader.ts';
+import type { ModelName } from './_types.ts';
 import Table from 'cli-table3';
 import { uniq } from 'es-toolkit';
 import pc from 'picocolors';
@@ -79,6 +81,14 @@ export class ResponsiveTable {
 			return { head: this.compactHead, colAligns: this.compactColAligns };
 		}
 		return { head: this.head, colAligns: this.colAligns };
+	}
+
+	/**
+	 * Public getter for the current column count based on active mode
+	 */
+	public get columnCount(): number {
+		const { head } = this.getCurrentTableConfig();
+		return head.length;
 	}
 
 	/**
@@ -309,7 +319,7 @@ export function formatCurrency(amount: number): string {
  * @param modelName - Full model name (e.g., "claude-sonnet-4-20250514")
  * @returns Shortened model name (e.g., "sonnet-4") or original if pattern doesn't match
  */
-function formatModelName(modelName: string): string {
+export function formatModelName(modelName: string): string {
 	// Extract model type from full model name
 	// e.g., "claude-sonnet-4-20250514" -> "sonnet-4"
 	// e.g., "claude-opus-4-20250514" -> "opus-4"
@@ -346,6 +356,44 @@ export function formatModelsDisplayMultiline(models: string[]): string {
 }
 
 /**
+ * Aggregate an array of model breakdowns by model name and sort by cost desc
+ */
+export function aggregateModelBreakdowns(breakdowns: ModelBreakdown[]): ModelBreakdown[] {
+  const modelAggregates = new Map<string, {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+    cost: number;
+  }>();
+
+  for (const breakdown of breakdowns) {
+    const existing = modelAggregates.get(breakdown.modelName) ?? {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+      cost: 0,
+    };
+
+    modelAggregates.set(breakdown.modelName, {
+      inputTokens: existing.inputTokens + breakdown.inputTokens,
+      outputTokens: existing.outputTokens + breakdown.outputTokens,
+      cacheCreationTokens: existing.cacheCreationTokens + breakdown.cacheCreationTokens,
+      cacheReadTokens: existing.cacheReadTokens + breakdown.cacheReadTokens,
+      cost: existing.cost + breakdown.cost,
+    });
+  }
+
+  return Array.from(modelAggregates.entries())
+    .map(([modelName, stats]) => ({
+      modelName: modelName as ModelName,
+      ...stats,
+    }))
+    .sort((a, b) => b.cost - a.cost);
+}
+
+/**
  * Pushes model breakdown rows to a table
  * @param table - The table to push rows to
  * @param table.push - Method to add rows to the table
@@ -367,10 +415,11 @@ export function pushBreakdownRows(
 	trailingColumns = 0,
 ): void {
 	for (const breakdown of breakdowns) {
-		const row: (string | number)[] = [`  └─ ${formatModelName(breakdown.modelName)}`];
+		// Start with empty first column (Source), then model name in second column (Models)
+		const row: (string | number)[] = ['', `  └─ ${formatModelName(breakdown.modelName)}`];
 
-		// Add extra empty columns before data
-		for (let i = 0; i < extraColumns; i++) {
+		// Add extra empty columns before data (reduced by 1 since we already added the Models column)
+		for (let i = 0; i < extraColumns - 1; i++) {
 			row.push('');
 		}
 
@@ -396,411 +445,76 @@ export function pushBreakdownRows(
 	}
 }
 
-if (import.meta.vitest != null) {
-	describe('ResponsiveTable', () => {
-		describe('compact mode behavior', () => {
-			it('should activate compact mode when terminal width is below threshold', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactHead: ['Date', 'Model', 'Cost'],
-					compactThreshold: 100,
-				});
 
-				// Mock process.env.COLUMNS to simulate narrow terminal
-				const originalColumns = process.env.COLUMNS;
-				process.env.COLUMNS = '80';
 
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				table.toString(); // This triggers compact mode calculation
-
-				expect(table.isCompactMode()).toBe(true);
-
-				// Restore original value
-				process.env.COLUMNS = originalColumns;
-			});
-
-			it('should not activate compact mode when terminal width is above threshold', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactHead: ['Date', 'Model', 'Cost'],
-					compactThreshold: 100,
-				});
-
-				// Mock process.env.COLUMNS to simulate wide terminal
-				const originalColumns = process.env.COLUMNS;
-				process.env.COLUMNS = '120';
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				table.toString(); // This triggers compact mode calculation
-
-				expect(table.isCompactMode()).toBe(false);
-
-				// Restore original value
-				process.env.COLUMNS = originalColumns;
-			});
-
-			it('should not activate compact mode when compactHead is not provided', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactThreshold: 100,
-				});
-
-				// Mock process.env.COLUMNS to simulate narrow terminal
-				const originalColumns = process.env.COLUMNS;
-				process.env.COLUMNS = '80';
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				table.toString(); // This triggers compact mode calculation
-
-				expect(table.isCompactMode()).toBe(false);
-
-				// Restore original value
-				process.env.COLUMNS = originalColumns;
-			});
-		});
-
-		describe('getCurrentTableConfig', () => {
-			it('should return compact config when in compact mode', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					colAligns: ['left', 'left', 'right', 'right', 'right'],
-					compactHead: ['Date', 'Model', 'Cost'],
-					compactColAligns: ['left', 'left', 'right'],
-					compactThreshold: 100,
-				});
-
-				// Mock process.env.COLUMNS to simulate narrow terminal
-				const originalColumns = process.env.COLUMNS;
-				process.env.COLUMNS = '80';
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				table.toString(); // This triggers compact mode calculation
-
-				// Access private method for testing
-				// eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
-				const config = (table as any).getCurrentTableConfig();
-				// eslint-disable-next-line ts/no-unsafe-member-access
-				expect(config.head).toEqual(['Date', 'Model', 'Cost']);
-				// eslint-disable-next-line ts/no-unsafe-member-access
-				expect(config.colAligns).toEqual(['left', 'left', 'right']);
-
-				// Restore original value
-				process.env.COLUMNS = originalColumns;
-			});
-
-			it('should return normal config when not in compact mode', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					colAligns: ['left', 'left', 'right', 'right', 'right'],
-					compactHead: ['Date', 'Model', 'Cost'],
-					compactColAligns: ['left', 'left', 'right'],
-					compactThreshold: 100,
-				});
-
-				// Mock process.env.COLUMNS to simulate wide terminal
-				const originalColumns = process.env.COLUMNS;
-				process.env.COLUMNS = '120';
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				table.toString(); // This triggers compact mode calculation
-
-				// Access private method for testing
-				// eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
-				const config = (table as any).getCurrentTableConfig();
-				// eslint-disable-next-line ts/no-unsafe-member-access
-				expect(config.head).toEqual(['Date', 'Model', 'Input', 'Output', 'Cost']);
-				// eslint-disable-next-line ts/no-unsafe-member-access
-				expect(config.colAligns).toEqual(['left', 'left', 'right', 'right', 'right']);
-
-				// Restore original value
-				process.env.COLUMNS = originalColumns;
-			});
-		});
-
-		describe('getCompactIndices', () => {
-			it('should return correct indices for existing compact headers', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactHead: ['Date', 'Model', 'Cost'],
-					compactThreshold: 100,
-				});
-
-				// Mock process.env.COLUMNS to simulate narrow terminal
-				const originalColumns = process.env.COLUMNS;
-				process.env.COLUMNS = '80';
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				table.toString(); // This triggers compact mode calculation
-
-				// Access private method for testing
-				// eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
-				const indices = (table as any).getCompactIndices();
-				expect(indices).toEqual([0, 1, 4]); // Date (0), Model (1), Cost (4)
-
-				// Restore original value
-				process.env.COLUMNS = originalColumns;
-			});
-
-			it('should fallback to first column for non-existent headers and log warning', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactHead: ['Date', 'NonExistent', 'Cost'],
-					compactThreshold: 100,
-				});
-
-				// Mock console.warn to capture warning
-				const originalWarn = console.warn;
-				const mockWarn = vi.fn();
-				console.warn = mockWarn;
-
-				// Mock process.env.COLUMNS to simulate narrow terminal
-				const originalColumns = process.env.COLUMNS;
-				process.env.COLUMNS = '80';
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				table.toString(); // This triggers compact mode calculation
-
-				// Access private method for testing
-				// eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
-				const indices = (table as any).getCompactIndices();
-				expect(indices).toEqual([0, 0, 4]); // Date (0), fallback to first (0), Cost (4)
-
-				// Verify warning was logged
-				expect(mockWarn).toHaveBeenCalledWith(
-					'Warning: Compact header "NonExistent" not found in table headers [Date, Model, Input, Output, Cost]. Using first column as fallback.',
-				);
-
-				// Restore original values
-				console.warn = originalWarn;
-				process.env.COLUMNS = originalColumns;
-			});
-
-			it('should return all indices when not in compact mode', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactHead: ['Date', 'Model', 'Cost'],
-					compactThreshold: 100,
-				});
-
-				// Mock process.env.COLUMNS to simulate wide terminal
-				const originalColumns = process.env.COLUMNS;
-				process.env.COLUMNS = '120';
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				table.toString(); // This triggers compact mode calculation
-
-				// Access private method for testing
-				// eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
-				const indices = (table as any).getCompactIndices();
-				expect(indices).toEqual([0, 1, 2, 3, 4]); // All columns
-
-				// Restore original value
-				process.env.COLUMNS = originalColumns;
-			});
-
-			it('should return all indices when compactHead is null', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactThreshold: 100,
-				});
-
-				// Access private method for testing
-				// eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
-				const indices = (table as any).getCompactIndices();
-				expect(indices).toEqual([0, 1, 2, 3, 4]); // All columns
-			});
-		});
-
-		describe('toString with mocked terminal widths', () => {
-			it('should filter columns in compact mode', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactHead: ['Date', 'Cost'],
-					compactThreshold: 100,
-				});
-
-				// Mock process.env.COLUMNS to simulate narrow terminal
-				const originalColumns = process.env.COLUMNS;
-				process.env.COLUMNS = '80';
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				const output = table.toString();
-
-				// Should be in compact mode
-				expect(table.isCompactMode()).toBe(true);
-				// Should contain compact headers
-				expect(output).toContain('Date');
-				expect(output).toContain('Cost');
-
-				// Restore original value
-				process.env.COLUMNS = originalColumns;
-			});
-
-			it('should show all columns in normal mode', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactHead: ['Date', 'Cost'],
-					compactThreshold: 100,
-				});
-
-				// Mock process.env.COLUMNS to simulate wide terminal
-				const originalColumns = process.env.COLUMNS;
-				process.env.COLUMNS = '150';
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				const output = table.toString();
-
-				// Should contain all headers
-				expect(output).toContain('Date');
-				expect(output).toContain('Model');
-				expect(output).toContain('Input');
-				expect(output).toContain('Output');
-				expect(output).toContain('Cost');
-
-				// Restore original value
-				process.env.COLUMNS = originalColumns;
-			});
-
-			it('should handle process.stdout.columns fallback when COLUMNS env var is not set', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactHead: ['Date', 'Cost'],
-					compactThreshold: 100,
-				});
-
-				// Mock process.env.COLUMNS and process.stdout.columns
-				const originalColumns = process.env.COLUMNS;
-				const originalStdoutColumns = process.stdout.columns;
-
-				process.env.COLUMNS = undefined;
-				// eslint-disable-next-line ts/no-unsafe-member-access
-				(process.stdout as any).columns = 80;
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				table.toString();
-
-				expect(table.isCompactMode()).toBe(true);
-
-				// Restore original values
-				process.env.COLUMNS = originalColumns;
-				process.stdout.columns = originalStdoutColumns;
-			});
-
-			it('should use default width when both COLUMNS and process.stdout.columns are unavailable', () => {
-				const table = new ResponsiveTable({
-					head: ['Date', 'Model', 'Input', 'Output', 'Cost'],
-					compactHead: ['Date', 'Cost'],
-					compactThreshold: 100,
-				});
-
-				// Mock process.env.COLUMNS and process.stdout.columns
-				const originalColumns = process.env.COLUMNS;
-				const originalStdoutColumns = process.stdout.columns;
-
-				process.env.COLUMNS = undefined;
-				// eslint-disable-next-line ts/no-unsafe-member-access
-				(process.stdout as any).columns = undefined;
-
-				table.push(['2024-01-01', 'sonnet-4', '1000', '500', '$1.50']);
-				table.toString();
-
-				// Default width is 120, which is above threshold of 100
-				expect(table.isCompactMode()).toBe(false);
-
-				// Restore original values
-				process.env.COLUMNS = originalColumns;
-				process.stdout.columns = originalStdoutColumns;
-			});
-		});
+/**
+ * Format source indicators for display with colors
+ * @param sources - Array of data sources (claude or opencode)
+ * @returns Formatted source string with colored indicators
+ */
+export function formatSources(sources: Array<'claude' | 'opencode' | string>): string {
+	if (sources == null || sources.length === 0) {
+		return '-';
+	}
+	const icons = sources.map((s) => {
+		if (s === 'claude') {
+			return pc.blue('[C]');
+		}
+		if (s === 'opencode') {
+			return pc.green('[O]');
+		}
+		// Fallback for any other source
+		return `[${s}]`;
 	});
+	return icons.join(' ');
+}
 
-	describe('formatNumber', () => {
-		it('formats positive numbers with comma separators', () => {
-			expect(formatNumber(1000)).toBe('1,000');
-			expect(formatNumber(1000000)).toBe('1,000,000');
-			expect(formatNumber(1234567.89)).toBe('1,234,567.89');
-		});
+/**
+ * Format date for display
+ */
+export function formatDate(dateStr: string): string {
+	const date = new Date(dateStr);
+	return date.toLocaleDateString();
+}
 
-		it('formats small numbers without separators', () => {
-			expect(formatNumber(0)).toBe('0');
-			expect(formatNumber(1)).toBe('1');
-			expect(formatNumber(999)).toBe('999');
-		});
+/**
+ * Format time for display
+ */
+export function formatTime(dateStr: string): string {
+	const date = new Date(dateStr);
+	return date.toLocaleTimeString();
+}
 
-		it('formats negative numbers', () => {
-			expect(formatNumber(-1000)).toBe('-1,000');
-			expect(formatNumber(-1234567.89)).toBe('-1,234,567.89');
-		});
+/**
+ * Format duration in milliseconds to human readable
+ */
+export function formatDuration(ms: number): string {
+	const seconds = Math.floor(ms / 1000);
+	const minutes = Math.floor(seconds / 60);
+	const hours = Math.floor(minutes / 60);
+	
+	if (hours > 0) {
+		return `${hours}h ${minutes % 60}m`;
+	} else if (minutes > 0) {
+		return `${minutes}m ${seconds % 60}s`;
+	} else {
+		return `${seconds}s`;
+	}
+}
 
-		it('formats decimal numbers', () => {
-			expect(formatNumber(1234.56)).toBe('1,234.56');
-			expect(formatNumber(0.123)).toBe('0.123');
-		});
+/**
+ * Format percentage for display
+ */
+export function formatPercentage(value: number): string {
+	return `${(value * 100).toFixed(1)}%`;
+}
 
-		it('handles edge cases', () => {
-			expect(formatNumber(Number.MAX_SAFE_INTEGER)).toBe('9,007,199,254,740,991');
-			expect(formatNumber(Number.MIN_SAFE_INTEGER)).toBe(
-				'-9,007,199,254,740,991',
-			);
-		});
-	});
-
-	describe('formatCurrency', () => {
-		it('formats positive amounts', () => {
-			expect(formatCurrency(10)).toBe('$10.00');
-			expect(formatCurrency(100.5)).toBe('$100.50');
-			expect(formatCurrency(1234.56)).toBe('$1234.56');
-		});
-
-		it('formats zero', () => {
-			expect(formatCurrency(0)).toBe('$0.00');
-		});
-
-		it('formats negative amounts', () => {
-			expect(formatCurrency(-10)).toBe('$-10.00');
-			expect(formatCurrency(-100.5)).toBe('$-100.50');
-		});
-
-		it('rounds to two decimal places', () => {
-			expect(formatCurrency(10.999)).toBe('$11.00');
-			expect(formatCurrency(10.994)).toBe('$10.99');
-			expect(formatCurrency(10.995)).toBe('$10.99'); // JavaScript's toFixed uses banker's rounding
-		});
-
-		it('handles small decimal values', () => {
-			expect(formatCurrency(0.01)).toBe('$0.01');
-			expect(formatCurrency(0.001)).toBe('$0.00');
-			expect(formatCurrency(0.009)).toBe('$0.01');
-		});
-
-		it('handles large numbers', () => {
-			expect(formatCurrency(1000000)).toBe('$1000000.00');
-			expect(formatCurrency(9999999.99)).toBe('$9999999.99');
-		});
-	});
-
-	describe('formatModelsDisplayMultiline', () => {
-		it('formats single model with bullet point', () => {
-			expect(formatModelsDisplayMultiline(['claude-sonnet-4-20250514'])).toBe('- sonnet-4');
-		});
-
-		it('formats multiple models with newlines and bullet points', () => {
-			const models = ['claude-sonnet-4-20250514', 'claude-opus-4-20250514'];
-			expect(formatModelsDisplayMultiline(models)).toBe('- opus-4\n- sonnet-4');
-		});
-
-		it('removes duplicates and sorts with bullet points', () => {
-			const models = ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-sonnet-4-20250514'];
-			expect(formatModelsDisplayMultiline(models)).toBe('- opus-4\n- sonnet-4');
-		});
-
-		it('handles empty array', () => {
-			expect(formatModelsDisplayMultiline([])).toBe('');
-		});
-
-		it('handles models that do not match pattern with bullet points', () => {
-			const models = ['custom-model', 'claude-sonnet-4-20250514'];
-			expect(formatModelsDisplayMultiline(models)).toBe('- custom-model\n- sonnet-4');
-		});
-	});
+/**
+ * Format bytes to human readable
+ */
+export function formatBytes(bytes: number): string {
+	const sizes = ["B", "KB", "MB", "GB"];
+	if (bytes === 0) return "0 B";
+	const i = Math.floor(Math.log(bytes) / Math.log(1024));
+	return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`;
 }

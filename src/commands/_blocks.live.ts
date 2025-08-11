@@ -67,7 +67,6 @@ export async function startLiveMonitoring(config: LiveMonitoringConfig): Promise
 
 				// Get latest data
 				const activeBlock = await monitor.getActiveBlock();
-				monitor.clearCache(); // TODO: debug LiveMonitor.getActiveBlock() efficiency
 
 				if (activeBlock == null) {
 					await renderWaitingState(terminal, config, abortController.signal);
