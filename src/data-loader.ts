@@ -129,7 +129,8 @@ async function _loadUnifiedUsageData(
 				const projectPath = extractProjectFromPath(file);
 				const sessionId = path.basename(file, '.jsonl');
 
-				for (const line of lines) {
+            let parseErrorCount = 0;
+            for (const [lineIndex, line] of lines.entries()) {
 					try {
 						const parsed = JSON.parse(line) as unknown;
 						// eslint-disable-next-line ts/no-use-before-define
@@ -167,10 +168,24 @@ async function _loadUnifiedUsageData(
 							costUSD: data.costUSD,
 							version: data.version,
 						});
-					}
-					catch {
-						// Skip invalid JSON lines
-					}
+              }
+              catch (error) {
+                // Log parse error with context but keep skipping invalid lines
+                parseErrorCount += 1;
+                if (parseErrorCount <= 3) {
+                  const message = error instanceof Error ? error.message : String(error);
+                  const snippet = line.length > 200 ? `${line.slice(0, 200)}…` : line;
+                  logger.warn(
+                    `Failed to parse JSON in unified loader (file: ${file}, lineIndex: ${lineIndex}): ${message}. Raw line: ${snippet}`,
+                  );
+                }
+                else if (parseErrorCount === 4) {
+                  logger.info(
+                    `Multiple JSON parse errors encountered in file ${file}. Further errors will be suppressed for this file to avoid log flooding.`,
+                  );
+                }
+                // Skip invalid JSON lines
+              }
 				}
 			}
 		}

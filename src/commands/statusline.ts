@@ -7,7 +7,7 @@ import { sharedArgs } from '../_shared-args.ts';
 import { statuslineHookJsonSchema } from '../_types.ts';
 import { formatCurrency } from '../_utils.ts';
 import { calculateTotals } from '../calculate-cost.ts';
-import { getClaudePaths, loadDailyUsageData, loadSessionBlockData, loadSessionUsageById } from '../data-loader.ts';
+import { getClaudePaths, loadUnifiedDailyUsageData, loadSessionBlockData, loadSessionUsageById } from '../data-loader.ts';
 import { log, logger } from '../logger.ts';
 
 /**
@@ -82,11 +82,12 @@ export const statuslineCommand = define({
 
 		let todayCost = 0;
 		try {
-			const dailyData = await loadDailyUsageData({
+			const dailyData = await loadUnifiedDailyUsageData({
 				since: todayStr,
 				until: todayStr,
 				mode: 'auto',
 				offline: ctx.values.offline,
+				sources: ['claude', 'opencode'],
 			});
 
 			if (dailyData.length > 0) {
@@ -105,6 +106,7 @@ export const statuslineCommand = define({
 			const blocks = await loadSessionBlockData({
 				mode: 'auto',
 				offline: ctx.values.offline,
+				sources: ['claude', 'opencode'],
 			});
 
 			// Only identify blocks if we have data
