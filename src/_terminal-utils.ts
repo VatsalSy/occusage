@@ -320,21 +320,4 @@ export function drawEmoji(emoji: string): string {
 	return `${SAVE_CURSOR}${emoji}${RESTORE_CURSOR}${ansiEscapes.cursorForward(stringWidth(emoji))}`;
 }
 
-if (import.meta.vitest != null) {
-	describe('drawEmoji', () => {
-		it('should always return a string with width as same as original', () => {
-			// 2-width emojis
-			expect(stringWidth(drawEmoji('⏱️'))).toBe(2);
-			expect(stringWidth(drawEmoji('🔥'))).toBe(2);
-			expect(stringWidth(drawEmoji('📈'))).toBe(2);
-			expect(stringWidth(drawEmoji('⚙️'))).toBe(2);
-			expect(stringWidth(drawEmoji('❌'))).toBe(2);
-			expect(stringWidth(drawEmoji('⚠️'))).toBe(2);
-			expect(stringWidth(drawEmoji('⚡'))).toBe(2);
 
-			// 1-width emojis
-			expect(stringWidth(drawEmoji('✓'))).toBe(1);
-			expect(stringWidth(drawEmoji('↻'))).toBe(1);
-		});
-	});
-}

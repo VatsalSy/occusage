@@ -7,6 +7,7 @@ bun run start                  # Run the CLI tool
 bun test                       # Run all tests
 bun test test/specific.test.ts # Run single test file
 bun run test:statusline        # Run statusline test with sample data
+./testManual.sh                # Run all commands manually -- direct testing
 ```
 
 ## Code Style Guidelines
