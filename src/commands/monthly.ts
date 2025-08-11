@@ -1,3 +1,5 @@
+import type { ModelName } from '../_types.ts';
+import type { ModelBreakdown, MonthlyUsage } from '../data-loader.ts';
 import process from 'node:process';
 import { Result } from '@praha/byethrow';
 import { define } from 'gunshi';
@@ -13,8 +15,6 @@ import {
 import { formatDateCompact, loadUnifiedMonthlyUsageData } from '../data-loader.ts';
 import { detectMismatches, printMismatchReport } from '../debug.ts';
 import { log, logger } from '../logger.ts';
-import type { ModelBreakdown, MonthlyUsage } from '../data-loader.ts';
-import type { ModelName } from '../_types.ts';
 
 /**
  * Aggregates model breakdowns across all sources for a monthly period

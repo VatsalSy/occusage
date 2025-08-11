@@ -1839,7 +1839,7 @@ export async function loadUnifiedDailyUsageData(
 			// Track model breakdown
 			if (!daily.modelBreakdowns.has(entry.model)) {
 				daily.modelBreakdowns.set(entry.model, {
-					modelName: entry.model as any,
+					modelName: createModelName(entry.model),
 					inputTokens: 0,
 					outputTokens: 0,
 					cacheCreationTokens: 0,
@@ -1876,13 +1876,13 @@ export async function loadUnifiedDailyUsageData(
 
 	// Convert to DailyUsage array
 	const result: DailyUsage[] = Array.from(dailyMap.entries()).map(([date, data]) => ({
-		date: date as any,
+		date: createDailyDate(date),
 		inputTokens: data.inputTokens,
 		outputTokens: data.outputTokens,
 		cacheCreationTokens: data.cacheCreationTokens,
 		cacheReadTokens: data.cacheReadTokens,
 		totalCost: data.totalCost,
-		modelsUsed: Array.from(data.modelsUsed).sort() as any,
+		modelsUsed: Array.from(data.modelsUsed).sort().map(createModelName),
 		modelBreakdowns: Array.from(data.modelBreakdowns.values()),
 		sourceBreakdowns: Array.from(data.sourceBreakdowns.values()),
 		project: data.project,
@@ -1926,12 +1926,13 @@ export async function loadUnifiedMonthlyUsageData(
 	const getCustomMonthKey = (timestamp: string): string => {
 		const date = new Date(timestamp);
 		const startDay = options?.startOfMonth ?? 1;
-		
+
 		// If we're before the start day, this entry belongs to the previous month's cycle
 		if (date.getDate() < startDay) {
 			const prevMonth = new Date(date.getFullYear(), date.getMonth() - 1, startDay);
 			return formatDate(prevMonth.toISOString(), options?.timezone, options?.locale).substring(0, 7);
-		} else {
+		}
+		else {
 			// This entry belongs to the current month's cycle
 			const currentMonth = new Date(date.getFullYear(), date.getMonth(), startDay);
 			return formatDate(currentMonth.toISOString(), options?.timezone, options?.locale).substring(0, 7);
@@ -1941,7 +1942,7 @@ export async function loadUnifiedMonthlyUsageData(
 	for (const block of blocks) {
 		for (const entry of block.entries) {
 			// Use custom month grouping based on start day
-			const monthKey = getCustomMonthKey(entry.timestamp);
+			const monthKey = getCustomMonthKey(entry.timestamp.toISOString());
 
 			if (!monthlyMap.has(monthKey)) {
 				monthlyMap.set(monthKey, {
@@ -1967,7 +1968,7 @@ export async function loadUnifiedMonthlyUsageData(
 			// Track model breakdown
 			if (!monthly.modelBreakdowns.has(entry.model)) {
 				monthly.modelBreakdowns.set(entry.model, {
-					modelName: entry.model as any,
+					modelName: createModelName(entry.model),
 					inputTokens: 0,
 					outputTokens: 0,
 					cacheCreationTokens: 0,
@@ -2004,13 +2005,13 @@ export async function loadUnifiedMonthlyUsageData(
 
 	// Convert to MonthlyUsage array
 	const result: MonthlyUsage[] = Array.from(monthlyMap.entries()).map(([month, data]) => ({
-		month: month as any,
+		month: createMonthlyDate(month),
 		inputTokens: data.inputTokens,
 		outputTokens: data.outputTokens,
 		cacheCreationTokens: data.cacheCreationTokens,
 		cacheReadTokens: data.cacheReadTokens,
 		totalCost: data.totalCost,
-		modelsUsed: Array.from(data.modelsUsed).sort() as any,
+		modelsUsed: Array.from(data.modelsUsed).sort().map(createModelName),
 		modelBreakdowns: Array.from(data.modelBreakdowns.values()),
 		sourceBreakdowns: Array.from(data.sourceBreakdowns.values()),
 	}));
@@ -2083,7 +2084,7 @@ export async function loadUnifiedWeeklyUsageData(
 			// Track model breakdown
 			if (!weekly.modelBreakdowns.has(entry.model)) {
 				weekly.modelBreakdowns.set(entry.model, {
-					modelName: entry.model as any,
+					modelName: createModelName(entry.model),
 					inputTokens: 0,
 					outputTokens: 0,
 					cacheCreationTokens: 0,
@@ -2120,13 +2121,13 @@ export async function loadUnifiedWeeklyUsageData(
 
 	// Convert to WeeklyUsage array
 	const result: WeeklyUsage[] = Array.from(weeklyMap.entries()).map(([week, data]) => ({
-		week: week as any,
+		week: createWeeklyDate(week),
 		inputTokens: data.inputTokens,
 		outputTokens: data.outputTokens,
 		cacheCreationTokens: data.cacheCreationTokens,
 		cacheReadTokens: data.cacheReadTokens,
 		totalCost: data.totalCost,
-		modelsUsed: Array.from(data.modelsUsed).sort() as any,
+		modelsUsed: Array.from(data.modelsUsed).sort().map(createModelName),
 		modelBreakdowns: Array.from(data.modelBreakdowns.values()),
 		sourceBreakdowns: Array.from(data.sourceBreakdowns.values()),
 	}));
