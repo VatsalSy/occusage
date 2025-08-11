@@ -8,6 +8,7 @@ export default ryoppippi({
 	},
 	ignores: [
 		'docs/**',
+		'**/*.md',
 	],
 }, {
 	rules: {
