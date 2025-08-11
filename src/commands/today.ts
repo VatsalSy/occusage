@@ -59,7 +59,7 @@ export const todayCommand = define({
 			offline: ctx.values.offline,
 			groupByProject: false,
 			project: ctx.values.project,
-			timezone: ctx.values.timezone,
+			timezone: tz, // Use the calculated timezone, not ctx.values.timezone
 			locale: ctx.values.locale,
 		});
 

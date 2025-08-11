@@ -8,7 +8,7 @@ import {
 	createActivityDate, 
 	createVersion 
 } from '../src/_types.ts';
-import type { DailyUsage, SessionUsage } from '../src/_types.ts';
+import type { DailyUsage, SessionUsage } from '../src/data-loader.ts';
 
 describe('token aggregation utilities', () => {
 	it('calculateTotals should aggregate daily usage data', () => {

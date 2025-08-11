@@ -2022,18 +2022,23 @@ export async function loadSessionBlockData(
 	// Identify session blocks
 	const blocks = identifySessionBlocks(allEntries, options?.sessionDurationHours);
 
+
+
 	// Filter by date range if specified
 	const dateFiltered = (options?.since != null && options.since !== '') || (options?.until != null && options.until !== '')
 		? blocks.filter((block) => {
-				// Always use en-CA for date comparison to ensure YYYY-MM-DD format
-				const blockDateStr = formatDate(block.startTime.toISOString(), options?.timezone, 'en-CA').replace(/-/g, '');
-				if (options.since != null && options.since !== '' && blockDateStr < options.since) {
-					return false;
-				}
-				if (options.until != null && options.until !== '' && blockDateStr > options.until) {
-					return false;
-				}
-				return true;
+				// Check if any entries in the block fall within the date range
+				return block.entries.some((entry) => {
+					const entryDateStr = formatDate(entry.timestamp.toISOString(), options?.timezone, 'en-CA').replace(/-/g, '');
+
+					if (options.since != null && options.since !== '' && entryDateStr < options.since) {
+						return false;
+					}
+					if (options.until != null && options.until !== '' && entryDateStr > options.until) {
+						return false;
+					}
+					return true;
+				});
 			})
 		: blocks;
 
@@ -2050,6 +2055,8 @@ export async function loadUnifiedDailyUsageData(
 ): Promise<DailyUsage[]> {
 	// Load session blocks from both sources
 	const blocks = await loadSessionBlockData(options);
+
+
 
 	if (blocks.length === 0) {
 		return [];
@@ -2156,8 +2163,16 @@ export async function loadUnifiedDailyUsageData(
 		project: data.project,
 	}));
 
+
+
+	// Filter by date range if specified
+	const dateFiltered = filterByDateRange(result, item => item.date, options?.since, options?.until);
+
+	// Filter by project if specified
+	const finalFiltered = filterByProject(dateFiltered, item => item.project, options?.project);
+
 	// Sort by date
-	return result.sort((a, b) => {
+	return finalFiltered.sort((a, b) => {
 		const order = options?.order ?? 'asc';
 		const comparison = a.date.localeCompare(b.date);
 		return order === 'desc' ? -comparison : comparison;

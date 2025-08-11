@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getTotalTokens } from '../src/_token-utils.ts';
-import type { TokenCounts, AggregatedTokenCounts } from '../src/_types.ts';
+import type { TokenCounts, AggregatedTokenCounts } from '../src/_token-utils.ts';
 
 describe('getTotalTokens', () => {
 	it('should sum all token types correctly (raw format)', () => {
@@ -60,6 +60,16 @@ describe('getTotalTokens', () => {
 			cacheCreationTokens: 0,
 			cacheReadTokens: 0,
 		};
+		expect(getTotalTokens(tokens)).toBe(1500);
+	});
+
+	it('should treat undefined cache fields as 0 (raw-like shape)', () => {
+		const tokens = { inputTokens: 1000, outputTokens: 500 } as any;
+		expect(getTotalTokens(tokens)).toBe(1500);
+	});
+
+	it('should treat undefined cache fields as 0 (aggregated-like shape)', () => {
+		const tokens = { inputTokens: 1000, outputTokens: 500 } as any;
 		expect(getTotalTokens(tokens)).toBe(1500);
 	});
 });

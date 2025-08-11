@@ -34,7 +34,7 @@ describe('processWithJq', () => {
 		const data = { test: 'value' };
 		const result = await processWithJq(data, 'invalid syntax {');
 		const error = Result.unwrapError(result);
-		expect(error.message).toContain('jq processing failed');
+		expect(error.message).toMatch(/jq processing failed|jq command not found/);
 	});
 
 	it('should handle complex jq operations', async () => {

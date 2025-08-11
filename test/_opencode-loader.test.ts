@@ -51,4 +51,10 @@ describe('Project path encoding/decoding', () => {
 		const decoded = decodeProjectPath(encoded);
 		expect(decoded).toBe(originalPath);
 	});
+
+	it('should gracefully handle malformed percent-encoding by falling back', () => {
+		const malformed = 'invalid%ZZpath';
+		const decoded = decodeProjectPath(malformed);
+		expect(decoded).toBe('/invalid%ZZpath');
+	});
 });
