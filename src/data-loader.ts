@@ -1394,6 +1394,150 @@ export async function loadSessionData(
 }
 
 /**
+ * Unified session usage data loader that supports both Claude Code and OpenCode
+ * Groups usage data by session/project identifier across both sources
+ * @param options - Optional configuration for loading and filtering data
+ * @returns Array of session usage summaries with source breakdowns sorted by last activity
+ */
+export async function loadUnifiedSessionData(
+	options?: LoadOptions,
+): Promise<SessionUsage[]> {
+	// Load unified usage data from both sources
+	const allEntries = await _loadUnifiedUsageData(options);
+
+	if (allEntries.length === 0) {
+		return [];
+	}
+
+	// Filter by date range if specified
+	const dateFiltered = filterByDateRange(
+		allEntries,
+		item => item.timestamp,
+		options?.since,
+		options?.until,
+	);
+
+	// Group by session identifier (for OpenCode, combine project + session)
+	const sessionMap = new Map<string, {
+		entries: UnifiedUsageEntry[];
+		latestTimestamp: string;
+		projectPath: string;
+	}>();
+
+	for (const entry of dateFiltered) {
+		// Create unified session identifier
+		const unifiedSessionId = entry.source === 'opencode' 
+			? `${entry.projectPath.split('/').pop()}-${entry.sessionId}` // Use last part of project path + session
+			: entry.sessionId; // Claude uses sessionId directly
+
+		const existing = sessionMap.get(unifiedSessionId);
+		if (existing == null) {
+			sessionMap.set(unifiedSessionId, {
+				entries: [entry],
+				latestTimestamp: entry.timestamp,
+				projectPath: entry.projectPath,
+			});
+		}
+		else {
+			existing.entries.push(entry);
+			if (entry.timestamp > existing.latestTimestamp) {
+				existing.latestTimestamp = entry.timestamp;
+			}
+		}
+	}
+
+	// Convert to SessionUsage format
+	const results: SessionUsage[] = [];
+
+	for (const [sessionId, sessionData] of sessionMap.entries()) {
+		const { entries, latestTimestamp, projectPath } = sessionData;
+
+		// Calculate totals
+		let inputTokens = 0;
+		let outputTokens = 0;
+		let cacheCreationTokens = 0;
+		let cacheReadTokens = 0;
+		let totalCost = 0;
+
+		const modelsUsed = new Set<string>();
+		const versions = new Set<string>();
+		const modelBreakdowns = new Map<string, ModelBreakdown>();
+		const sourceBreakdowns = new Map<'claude' | 'opencode', SourceBreakdown>();
+
+		// Process each entry
+		for (const entry of entries) {
+			const usage = entry.usage;
+			inputTokens += usage.input_tokens;
+			outputTokens += usage.output_tokens;
+			cacheCreationTokens += usage.cache_creation_input_tokens;
+			cacheReadTokens += usage.cache_read_input_tokens;
+			totalCost += entry.costUSD ?? 0;
+
+			modelsUsed.add(entry.model);
+			versions.add(entry.version ?? '1.0.0');
+
+			// Update model breakdown
+			const existing = modelBreakdowns.get(entry.model);
+			if (existing == null) {
+				modelBreakdowns.set(entry.model, {
+					modelName: entry.model as ModelName,
+					inputTokens: usage.input_tokens,
+					outputTokens: usage.output_tokens,
+					cacheCreationTokens: usage.cache_creation_input_tokens,
+					cacheReadTokens: usage.cache_read_input_tokens,
+					cost: entry.costUSD ?? 0,
+				});
+			}
+			else {
+				existing.inputTokens += usage.input_tokens;
+				existing.outputTokens += usage.output_tokens;
+				existing.cacheCreationTokens += usage.cache_creation_input_tokens;
+				existing.cacheReadTokens += usage.cache_read_input_tokens;
+				existing.cost += entry.costUSD ?? 0;
+			}
+
+			// Update source breakdown
+			const sourceExisting = sourceBreakdowns.get(entry.source);
+			if (sourceExisting == null) {
+				sourceBreakdowns.set(entry.source, {
+					source: entry.source,
+					inputTokens: usage.input_tokens,
+					outputTokens: usage.output_tokens,
+					cacheCreationTokens: usage.cache_creation_input_tokens,
+					cacheReadTokens: usage.cache_read_input_tokens,
+					totalCost: entry.costUSD ?? 0,
+				});
+			}
+			else {
+				sourceExisting.inputTokens += usage.input_tokens;
+				sourceExisting.outputTokens += usage.output_tokens;
+				sourceExisting.cacheCreationTokens += usage.cache_creation_input_tokens;
+				sourceExisting.cacheReadTokens += usage.cache_read_input_tokens;
+				sourceExisting.totalCost += entry.costUSD ?? 0;
+			}
+		}
+
+		results.push({
+			sessionId: createSessionId(sessionId),
+			projectPath: createProjectPath(projectPath),
+			inputTokens,
+			outputTokens,
+			cacheCreationTokens,
+			cacheReadTokens,
+			totalCost,
+			lastActivity: formatDate(latestTimestamp, options?.timezone, 'en-CA') as ActivityDate,
+			versions: Array.from(versions).sort() as Version[],
+			modelsUsed: Array.from(modelsUsed) as ModelName[],
+			modelBreakdowns: Array.from(modelBreakdowns.values()),
+			sourceBreakdowns: Array.from(sourceBreakdowns.values()),
+		});
+	}
+
+	// Sort by last activity
+	return sortByDate(results, item => item.lastActivity, options?.order);
+}
+
+/**
  * Loads and aggregates Claude usage data by month
  * Uses daily usage data as the source and groups by month
  * @param options - Optional configuration for loading and filtering data

@@ -4,13 +4,13 @@ import { define } from 'gunshi';
 import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
 import { sharedCommandConfig } from '../_shared-args.ts';
-import { formatCurrency, formatModelsDisplayMultiline, formatNumber, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
+import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
 	createTotalsObject,
 	getTotalTokens,
 } from '../calculate-cost.ts';
-import { formatDateCompact, loadSessionData } from '../data-loader.ts';
+import { formatDateCompact, loadUnifiedSessionData } from '../data-loader.ts';
 import { detectMismatches, printMismatchReport } from '../debug.ts';
 import { log, logger } from '../logger.ts';
 
@@ -25,7 +25,7 @@ export const sessionCommand = define({
 			logger.level = 0;
 		}
 
-		const sessionData = await loadSessionData({
+		const sessionData = await loadUnifiedSessionData({
 			since: ctx.values.since,
 			until: ctx.values.until,
 			mode: ctx.values.mode,
@@ -91,49 +91,96 @@ export const sessionCommand = define({
 			logger.box('Claude Code Token Usage Report - By Session');
 
 			// Create table with compact mode support
+			// When breakdown is enabled, remove Source column for cleaner display
 			const table = new ResponsiveTable({
-				head: [
-					'Session',
-					'Models',
-					'Input',
-					'Output',
-					'Cache Create',
-					'Cache Read',
-					'Total Tokens',
-					'Cost (USD)',
-					'Last Activity',
-				],
+				head: ctx.values.breakdown
+					? [
+							'Session',
+							'Models',
+							'Input',
+							'Output',
+							'Cache Create',
+							'Cache Read',
+							'Total Tokens',
+							'Cost (USD)',
+							'Last Activity',
+						]
+					: [
+							'Source',
+							'Session',
+							'Models',
+							'Input',
+							'Output',
+							'Cache Create',
+							'Cache Read',
+							'Total Tokens',
+							'Cost (USD)',
+							'Last Activity',
+						],
 				style: {
 					head: ['cyan'],
 				},
-				colAligns: [
-					'left',
-					'left',
-					'right',
-					'right',
-					'right',
-					'right',
-					'right',
-					'right',
-					'left',
-				],
+				colAligns: ctx.values.breakdown
+					? [
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+							'left',
+						]
+					: [
+							'center',
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+							'left',
+						],
 				dateFormatter: (dateStr: string) => formatDateCompact(dateStr, ctx.values.timezone, ctx.values.locale),
-				compactHead: [
-					'Session',
-					'Models',
-					'Input',
-					'Output',
-					'Cost (USD)',
-					'Last Activity',
-				],
-				compactColAligns: [
-					'left',
-					'left',
-					'right',
-					'right',
-					'right',
-					'left',
-				],
+				compactHead: ctx.values.breakdown
+					? [
+							'Session',
+							'Models',
+							'Input',
+							'Output',
+							'Cost (USD)',
+							'Last Activity',
+						]
+					: [
+							'Source',
+							'Session',
+							'Models',
+							'Input',
+							'Output',
+							'Cost (USD)',
+							'Last Activity',
+						],
+				compactColAligns: ctx.values.breakdown
+					? [
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+							'left',
+						]
+					: [
+							'center',
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+							'left',
+						],
 				compactThreshold: 100,
 			});
 
@@ -144,51 +191,107 @@ export const sessionCommand = define({
 
 				maxSessionLength = Math.max(maxSessionLength, sessionDisplay.length);
 
-				// Main row
-				table.push([
-					sessionDisplay,
-					formatModelsDisplayMultiline(data.modelsUsed),
-					formatNumber(data.inputTokens),
-					formatNumber(data.outputTokens),
-					formatNumber(data.cacheCreationTokens),
-					formatNumber(data.cacheReadTokens),
-					formatNumber(getTotalTokens(data)),
-					formatCurrency(data.totalCost),
-					data.lastActivity,
-				]);
-
-				// Add model breakdown rows if flag is set
 				if (ctx.values.breakdown) {
-					// Session has 1 extra column before data and 1 trailing column
+					// In breakdown mode, show one row per session with aggregated totals
+					table.push([
+						sessionDisplay,
+						formatModelsDisplayMultiline(data.modelsUsed),
+						formatNumber(data.inputTokens),
+						formatNumber(data.outputTokens),
+						formatNumber(data.cacheCreationTokens),
+						formatNumber(data.cacheReadTokens),
+						formatNumber(getTotalTokens(data)),
+						formatCurrency(data.totalCost),
+						data.lastActivity,
+					]);
+
+					// Add model breakdown rows
 					pushBreakdownRows(table, data.modelBreakdowns, 1, 1);
+				}
+				else {
+					// Normal mode: show separate rows for each source
+					if (data.sourceBreakdowns?.length > 0) {
+						for (const sourceBreakdown of data.sourceBreakdowns) {
+							table.push([
+								formatSources([sourceBreakdown.source]),
+								sessionDisplay,
+								formatModelsDisplayMultiline(data.modelsUsed),
+								formatNumber(sourceBreakdown.inputTokens),
+								formatNumber(sourceBreakdown.outputTokens),
+								formatNumber(sourceBreakdown.cacheCreationTokens),
+								formatNumber(sourceBreakdown.cacheReadTokens),
+								formatNumber(sourceBreakdown.inputTokens + sourceBreakdown.outputTokens + sourceBreakdown.cacheCreationTokens + sourceBreakdown.cacheReadTokens),
+								formatCurrency(sourceBreakdown.totalCost),
+								data.lastActivity,
+							]);
+						}
+
+						// Add total row if there are multiple sources
+						if (data.sourceBreakdowns.length > 1) {
+							table.push([
+								pc.bold('TOTAL'),
+								sessionDisplay,
+								formatModelsDisplayMultiline(data.modelsUsed),
+								formatNumber(data.inputTokens),
+								formatNumber(data.outputTokens),
+								formatNumber(data.cacheCreationTokens),
+								formatNumber(data.cacheReadTokens),
+								formatNumber(getTotalTokens(data)),
+								formatCurrency(data.totalCost),
+								data.lastActivity,
+							]);
+						}
+					}
+					else {
+						// Fallback for data without source breakdowns
+						table.push([
+							'',
+							sessionDisplay,
+							formatModelsDisplayMultiline(data.modelsUsed),
+							formatNumber(data.inputTokens),
+							formatNumber(data.outputTokens),
+							formatNumber(data.cacheCreationTokens),
+							formatNumber(data.cacheReadTokens),
+							formatNumber(getTotalTokens(data)),
+							formatCurrency(data.totalCost),
+							data.lastActivity,
+						]);
+					}
 				}
 			}
 
 			// Add empty row for visual separation before totals
-			table.push([
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-			]);
+			const totalsCols = ctx.values.breakdown ? 9 : 10;
+			table.push(Array.from({ length: totalsCols }, () => ''));
 
 			// Add totals
-			table.push([
-				pc.yellow('Total'),
-				'', // Empty for Models column in totals
-				pc.yellow(formatNumber(totals.inputTokens)),
-				pc.yellow(formatNumber(totals.outputTokens)),
-				pc.yellow(formatNumber(totals.cacheCreationTokens)),
-				pc.yellow(formatNumber(totals.cacheReadTokens)),
-				pc.yellow(formatNumber(getTotalTokens(totals))),
-				pc.yellow(formatCurrency(totals.totalCost)),
-				'',
-			]);
+			if (ctx.values.breakdown) {
+				table.push([
+					pc.yellow('Total'),
+					'', // Empty for Models column in totals
+					pc.yellow(formatNumber(totals.inputTokens)),
+					pc.yellow(formatNumber(totals.outputTokens)),
+					pc.yellow(formatNumber(totals.cacheCreationTokens)),
+					pc.yellow(formatNumber(totals.cacheReadTokens)),
+					pc.yellow(formatNumber(getTotalTokens(totals))),
+					pc.yellow(formatCurrency(totals.totalCost)),
+					'',
+				]);
+			}
+			else {
+				table.push([
+					pc.yellow('Total'),
+					'', // Empty for Session column in totals
+					'', // Empty for Models column in totals
+					pc.yellow(formatNumber(totals.inputTokens)),
+					pc.yellow(formatNumber(totals.outputTokens)),
+					pc.yellow(formatNumber(totals.cacheCreationTokens)),
+					pc.yellow(formatNumber(totals.cacheReadTokens)),
+					pc.yellow(formatNumber(getTotalTokens(totals))),
+					pc.yellow(formatCurrency(totals.totalCost)),
+					'',
+				]);
+			}
 
 			log(table.toString());
 
