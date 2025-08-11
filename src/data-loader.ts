@@ -25,7 +25,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { toArray } from '@antfu/utils';
-import { unreachable } from '@core/errorutil';
+// Helper function to mark unreachable code
+function unreachable(_value: never): never {
+	throw new Error('Unreachable code reached');
+}
 import { Result } from '@praha/byethrow';
 import { groupBy, uniq } from 'es-toolkit'; // TODO: after node20 is deprecated, switch to native Object.groupBy
 import { sort } from 'fast-sort';

@@ -9,7 +9,8 @@
 import type { SessionBlock } from './_session-blocks.ts';
 import type { TerminalManager } from './_terminal-utils.ts';
 import type { CostMode, SortOrder } from './_types.ts';
-import { delay } from '@jsr/std__async/delay';
+// Simple delay function
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 import * as ansiEscapes from 'ansi-escapes';
 import pc from 'picocolors';
 import prettyMs from 'pretty-ms';
