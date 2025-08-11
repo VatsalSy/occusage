@@ -9,25 +9,39 @@
 import type { SessionBlock } from './_session-blocks.ts';
 import type { TerminalManager } from './_terminal-utils.ts';
 import type { CostMode, SortOrder } from './_types.ts';
-// Simple delay function with AbortSignal support
-const delay = (ms: number, options?: { signal?: AbortSignal }) => {
-	return new Promise((resolve, reject) => {
-		if (options?.signal?.aborted) {
-			reject(new DOMException('This operation was aborted', 'AbortError'));
-			return;
-		}
-		
-		const timeoutId = setTimeout(resolve, ms);
-		
-		if (options?.signal) {
-			const abortHandler = () => {
-				clearTimeout(timeoutId);
-				reject(new DOMException('This operation was aborted', 'AbortError'));
-			};
-			
-			options.signal.addEventListener('abort', abortHandler, { once: true });
-		}
-	});
+// Delay with AbortSignal support and proper cleanup
+const delay = (ms: number, options?: { signal?: AbortSignal }): Promise<void> => {
+    return new Promise<void>((resolve, reject) => {
+        const createAbortError = (message: string): Error | DOMException => {
+            if (typeof DOMException !== 'undefined') {
+                return new DOMException(message, 'AbortError');
+            }
+            const error = new Error(message);
+            error.name = 'AbortError';
+            return error;
+        };
+
+        if (options?.signal?.aborted) {
+            reject(createAbortError('This operation was aborted'));
+            return;
+        }
+
+        let timeoutId: ReturnType<typeof setTimeout>;
+        const onAbort = (): void => {
+            clearTimeout(timeoutId);
+            options?.signal?.removeEventListener('abort', onAbort);
+            reject(createAbortError('This operation was aborted'));
+        };
+
+        timeoutId = setTimeout(() => {
+            options?.signal?.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+
+        if (options?.signal) {
+            options.signal.addEventListener('abort', onAbort);
+        }
+    });
 };
 import * as ansiEscapes from 'ansi-escapes';
 import pc from 'picocolors';
@@ -456,15 +470,16 @@ export function renderLiveDisplay(terminal: TerminalManager, block: SessionBlock
 		terminal.write(`${marginStr}├${'─'.repeat(boxWidth - 2)}┤\n`);
 
 		// Format sources with colors
-		const sourcesDisplay = block.sources?.map((s) => {
-			if (s === 'claude') {
-				return pc.blue('[C]');
+		const sourcesDisplay = block.sources.map((source) => {
+			switch (source) {
+				case 'claude':
+					return pc.blue('[C]');
+				case 'opencode':
+					return pc.green('[O]');
+				default:
+					return pc.gray('[?]');
 			}
-			if (s === 'opencode') {
-				return pc.green('[O]');
-			}
-			return '';
-		}).join(' ') ?? '';
+		}).join(' ');
 
 		const modelsLine = `${drawEmoji('⚙️')}  Models: ${formatModelsDisplay(block.models)}${sourcesDisplay.length > 0 ? `  ${sourcesDisplay}` : ''}`;
 		const modelsLinePadded = modelsLine + ' '.repeat(Math.max(0, boxWidth - 3 - stringWidth(modelsLine)));
