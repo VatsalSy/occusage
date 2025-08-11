@@ -3,7 +3,7 @@ import { Result } from '@praha/byethrow';
 import { define } from 'gunshi';
 import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
-import { sharedCommandConfig } from '../_shared-args.ts';
+import { sharedArgs } from '../_shared-args.ts';
 import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
@@ -17,9 +17,21 @@ import { log, logger } from '../logger.ts';
 export const todayCommand = define({
 	name: 'today',
 	description: 'Show usage report for today only',
-	...sharedCommandConfig,
+	toKebab: true,
 	args: {
-		...sharedCommandConfig.args,
+		// Include all shared args except since and until
+		json: sharedArgs.json,
+		mode: sharedArgs.mode,
+		debug: sharedArgs.debug,
+		debugSamples: sharedArgs.debugSamples,
+		order: sharedArgs.order,
+		breakdown: sharedArgs.breakdown,
+		offline: sharedArgs.offline,
+		color: sharedArgs.color,
+		noColor: sharedArgs.noColor,
+		timezone: sharedArgs.timezone,
+		locale: sharedArgs.locale,
+		jq: sharedArgs.jq,
 		project: {
 			type: 'string',
 			short: 'p',
