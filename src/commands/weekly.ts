@@ -202,10 +202,10 @@ export const weeklyCommand = define({
 			let isFirstWeek = true;
 
 			for (const data of weeklyData) {
-				// Add visual separation between different weeks
-				if (data.week !== previousWeek && !isFirstWeek) {
+				// Add visual separation between different weeks (only in normal mode, not breakdown)
+				if (data.week !== previousWeek && !isFirstWeek && !ctx.values.breakdown) {
 					// Add separator row between weeks
-					const separatorCols = ctx.values.breakdown ? 8 : 9;
+					const separatorCols = 9;
 					table.push(Array.from({ length: separatorCols }, (_, i) => i === 1 ? pc.dim('─'.repeat(15)) : ''));
 				}
 

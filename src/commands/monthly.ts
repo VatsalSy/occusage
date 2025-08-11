@@ -248,13 +248,6 @@ export const monthlyCommand = define({
 
 				if (ctx.values.breakdown) {
 					// In breakdown mode, show aggregated totals per month
-					// Add visual separation between different months
-					if (data.month !== previousMonth && !isFirstMonth) {
-						// Add separator row between months
-						const separatorCols = 8; // 8 columns in breakdown mode
-						table.push(Array.from({ length: separatorCols }, (_, i) => i === 0 ? pc.dim('─'.repeat(15)) : ''));
-					}
-
 					// Show one row per month with aggregated totals
 					table.push([
 						monthDisplay,

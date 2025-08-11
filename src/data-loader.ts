@@ -959,6 +959,53 @@ async function calculateCostForLoadedEntry(
 }
 
 /**
+ * Calculate cost for unified usage entry (Claude or OpenCode)
+ * @param entry - Unified usage entry
+ * @param mode - Cost calculation mode
+ * @param fetcher - Pricing fetcher instance
+ * @returns Calculated cost in USD
+ */
+async function calculateCostForUnifiedEntry(
+	entry: UnifiedUsageEntry,
+	mode: CostMode,
+	fetcher: PricingFetcher,
+): Promise<number> {
+	if (mode === 'display') {
+		// Always use costUSD, even if null
+		return entry.costUSD ?? 0;
+	}
+
+	if (mode === 'calculate') {
+		// Always calculate from tokens
+		const tokens = {
+			input_tokens: entry.usage.input_tokens,
+			output_tokens: entry.usage.output_tokens,
+			cache_creation_input_tokens: entry.usage.cache_creation_input_tokens,
+			cache_read_input_tokens: entry.usage.cache_read_input_tokens,
+		};
+		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
+	}
+
+	if (mode === 'auto') {
+		// Auto mode: use costUSD if available, otherwise calculate
+		if (entry.costUSD != null) {
+			return entry.costUSD;
+		}
+
+		// Calculate from tokens when costUSD is missing (e.g., OpenCode entries)
+		const tokens = {
+			input_tokens: entry.usage.input_tokens,
+			output_tokens: entry.usage.output_tokens,
+			cache_creation_input_tokens: entry.usage.cache_creation_input_tokens,
+			cache_read_input_tokens: entry.usage.cache_read_input_tokens,
+		};
+		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
+	}
+
+	unreachable(mode);
+}
+
+/**
  * Calculate cost for OpenCode usage entry
  * @param entry - OpenCode usage entry
  * @param mode - Cost calculation mode
@@ -1431,6 +1478,10 @@ export async function loadUnifiedSessionData(
 		return [];
 	}
 
+	// Initialize pricing fetcher for cost calculation
+	const mode = options?.mode ?? 'auto';
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+
 	// Filter by date range if specified
 	const dateFiltered = filterByDateRange(
 		allEntries,
@@ -1493,7 +1544,12 @@ export async function loadUnifiedSessionData(
 			outputTokens += usage.output_tokens;
 			cacheCreationTokens += usage.cache_creation_input_tokens;
 			cacheReadTokens += usage.cache_read_input_tokens;
-			totalCost += entry.costUSD ?? 0;
+
+			// Calculate cost using the pricing fetcher (handles null costUSD for OpenCode)
+			const entryCost = fetcher != null
+				? await calculateCostForUnifiedEntry(entry, mode, fetcher)
+				: entry.costUSD ?? 0;
+			totalCost += entryCost;
 
 			modelsUsed.add(entry.model);
 			versions.add(entry.version ?? '1.0.0');
@@ -1507,7 +1563,7 @@ export async function loadUnifiedSessionData(
 					outputTokens: usage.output_tokens,
 					cacheCreationTokens: usage.cache_creation_input_tokens,
 					cacheReadTokens: usage.cache_read_input_tokens,
-					cost: entry.costUSD ?? 0,
+					cost: entryCost,
 				});
 			}
 			else {
@@ -1515,7 +1571,7 @@ export async function loadUnifiedSessionData(
 				existing.outputTokens += usage.output_tokens;
 				existing.cacheCreationTokens += usage.cache_creation_input_tokens;
 				existing.cacheReadTokens += usage.cache_read_input_tokens;
-				existing.cost += entry.costUSD ?? 0;
+				existing.cost += entryCost;
 			}
 
 			// Update source breakdown
@@ -1527,7 +1583,7 @@ export async function loadUnifiedSessionData(
 					outputTokens: usage.output_tokens,
 					cacheCreationTokens: usage.cache_creation_input_tokens,
 					cacheReadTokens: usage.cache_read_input_tokens,
-					totalCost: entry.costUSD ?? 0,
+					totalCost: entryCost,
 				});
 			}
 			else {
@@ -1535,7 +1591,7 @@ export async function loadUnifiedSessionData(
 				sourceExisting.outputTokens += usage.output_tokens;
 				sourceExisting.cacheCreationTokens += usage.cache_creation_input_tokens;
 				sourceExisting.cacheReadTokens += usage.cache_read_input_tokens;
-				sourceExisting.totalCost += entry.costUSD ?? 0;
+				sourceExisting.totalCost += entryCost;
 			}
 		}
 
@@ -2368,6 +2424,10 @@ export async function loadUnifiedProjectData(
 		return [];
 	}
 
+	// Initialize pricing fetcher for cost calculation
+	const mode = options?.mode ?? 'auto';
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+
 	// Filter by date range if specified
 	const dateFiltered = filterByDateRange(
 		allEntries,
@@ -2426,7 +2486,12 @@ export async function loadUnifiedProjectData(
 			outputTokens += usage.output_tokens;
 			cacheCreationTokens += usage.cache_creation_input_tokens;
 			cacheReadTokens += usage.cache_read_input_tokens;
-			totalCost += entry.costUSD ?? 0;
+
+			// Calculate cost using the pricing fetcher (handles null costUSD for OpenCode)
+			const entryCost = fetcher != null
+				? await calculateCostForUnifiedEntry(entry, mode, fetcher)
+				: entry.costUSD ?? 0;
+			totalCost += entryCost;
 
 			modelsUsed.add(entry.model);
 			versions.add(entry.version ?? '1.0.0');
@@ -2440,7 +2505,7 @@ export async function loadUnifiedProjectData(
 					outputTokens: usage.output_tokens,
 					cacheCreationTokens: usage.cache_creation_input_tokens,
 					cacheReadTokens: usage.cache_read_input_tokens,
-					cost: entry.costUSD ?? 0,
+					cost: entryCost,
 				});
 			}
 			else {
@@ -2448,7 +2513,7 @@ export async function loadUnifiedProjectData(
 				existing.outputTokens += usage.output_tokens;
 				existing.cacheCreationTokens += usage.cache_creation_input_tokens;
 				existing.cacheReadTokens += usage.cache_read_input_tokens;
-				existing.cost += entry.costUSD ?? 0;
+				existing.cost += entryCost;
 			}
 
 			// Update source breakdown
@@ -2460,7 +2525,7 @@ export async function loadUnifiedProjectData(
 					outputTokens: usage.output_tokens,
 					cacheCreationTokens: usage.cache_creation_input_tokens,
 					cacheReadTokens: usage.cache_read_input_tokens,
-					totalCost: entry.costUSD ?? 0,
+					totalCost: entryCost,
 				});
 			}
 			else {
@@ -2468,7 +2533,7 @@ export async function loadUnifiedProjectData(
 				sourceExisting.outputTokens += usage.output_tokens;
 				sourceExisting.cacheCreationTokens += usage.cache_creation_input_tokens;
 				sourceExisting.cacheReadTokens += usage.cache_read_input_tokens;
-				sourceExisting.totalCost += entry.costUSD ?? 0;
+				sourceExisting.totalCost += entryCost;
 			}
 		}
 

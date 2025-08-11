@@ -233,10 +233,10 @@ export const dailyCommand = define({
 			let isFirstDate = true;
 
 			for (const data of dailyData) {
-				// Add visual separation between different dates
-				if (data.date !== previousDate && !isFirstDate) {
+				// Add visual separation between different dates (only in normal mode, not breakdown)
+				if (data.date !== previousDate && !isFirstDate && !ctx.values.breakdown) {
 					// Add separator row between dates
-					const separatorCols = ctx.values.breakdown ? 8 : 9;
+					const separatorCols = 9;
 					table.push(Array.from({ length: separatorCols }, (_, i) => i === 1 ? pc.dim('─'.repeat(10)) : ''));
 				}
 
