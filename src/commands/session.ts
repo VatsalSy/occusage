@@ -4,7 +4,7 @@ import { define } from 'gunshi';
 import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
 import { sharedCommandConfig } from '../_shared-args.ts';
-import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
+import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
 	createTotalsObject,
@@ -121,96 +121,54 @@ export const sessionCommand = define({
 			logger.box('Claude Code Token Usage Report - By Session');
 
 			// Create table with compact mode support
-			// When breakdown is enabled, remove Source column for cleaner display
+			// For session command, keep Source column even in breakdown mode (unlike other commands)
 			const table = new ResponsiveTable({
-				head: ctx.values.breakdown
-					? [
-							'Session',
-							'Models',
-							'Input',
-							'Output',
-							'Cache Create',
-							'Cache Read',
-							'Total Tokens',
-							'Cost (USD)',
-							'Last Activity',
-						]
-					: [
-							'Source',
-							'Session',
-							'Models',
-							'Input',
-							'Output',
-							'Cache Create',
-							'Cache Read',
-							'Total Tokens',
-							'Cost (USD)',
-							'Last Activity',
-						],
+				head: [
+					'Source',
+					'Session',
+					'Models',
+					'Input',
+					'Output',
+					'Cache Create',
+					'Cache Read',
+					'Total Tokens',
+					'Cost (USD)',
+					'Last Activity',
+				],
 				style: {
 					head: ['cyan'],
 				},
-				colAligns: ctx.values.breakdown
-					? [
-							'left',
-							'left',
-							'right',
-							'right',
-							'right',
-							'right',
-							'right',
-							'right',
-							'left',
-						]
-					: [
-							'center',
-							'left',
-							'left',
-							'right',
-							'right',
-							'right',
-							'right',
-							'right',
-							'right',
-							'left',
-						],
+				colAligns: [
+					'center',
+					'left',
+					'left',
+					'right',
+					'right',
+					'right',
+					'right',
+					'right',
+					'right',
+					'left',
+				],
 				dateFormatter: (dateStr: string) => formatDateCompact(dateStr, ctx.values.timezone, ctx.values.locale),
-				compactHead: ctx.values.breakdown
-					? [
-							'Session',
-							'Models',
-							'Input',
-							'Output',
-							'Cost (USD)',
-							'Last Activity',
-						]
-					: [
-							'Source',
-							'Session',
-							'Models',
-							'Input',
-							'Output',
-							'Cost (USD)',
-							'Last Activity',
-						],
-				compactColAligns: ctx.values.breakdown
-					? [
-							'left',
-							'left',
-							'right',
-							'right',
-							'right',
-							'left',
-						]
-					: [
-							'center',
-							'left',
-							'left',
-							'right',
-							'right',
-							'right',
-							'left',
-						],
+				compactHead: [
+					'Source',
+					'Session',
+					'Models',
+					'Input',
+					'Output',
+					'Cost (USD)',
+					'Last Activity',
+				],
+				compactColAligns: [
+					'center',
+					'left',
+					'left',
+					'right',
+					'right',
+					'right',
+					'left',
+				],
 				compactThreshold: 100,
 			});
 
@@ -221,9 +179,15 @@ export const sessionCommand = define({
 
 				maxSessionLength = Math.max(maxSessionLength, sessionDisplay.length);
 
+				// Determine the primary source for this session
+				const primarySource = data.sourceBreakdowns?.length > 0 
+					? data.sourceBreakdowns[0].source 
+					: (data.sessionId.includes('ses_') ? 'opencode' : 'claude');
+
 				if (ctx.values.breakdown) {
-					// In breakdown mode, show one row per session with aggregated totals
+					// In breakdown mode, show one row per session with aggregated totals, including source
 					table.push([
+						formatSources([primarySource]),
 						sessionDisplay,
 						formatModelsDisplayMultiline(data.modelsUsed),
 						formatNumber(data.inputTokens),
@@ -235,8 +199,28 @@ export const sessionCommand = define({
 						data.lastActivity,
 					]);
 
-					// Add model breakdown rows
-					pushBreakdownRows(table, data.modelBreakdowns, 1, 1);
+					// Add model breakdown rows (custom implementation for session command with Source column)
+					for (const breakdown of data.modelBreakdowns) {
+						const totalTokens = breakdown.inputTokens + breakdown.outputTokens
+							+ breakdown.cacheCreationTokens + breakdown.cacheReadTokens;
+						
+						// Format model name (e.g., "claude-sonnet-4-20250514" -> "sonnet-4")
+						const match = breakdown.modelName.match(/claude-(\w+)-(\d+)-\d+/);
+						const formattedModelName = match != null ? `${match[1]}-${match[2]}` : breakdown.modelName;
+						
+						table.push([
+							'', // Empty Source column
+							'', // Empty Session column  
+							`  └─ ${formattedModelName}`, // Model name in Models column
+							pc.gray(formatNumber(breakdown.inputTokens)),
+							pc.gray(formatNumber(breakdown.outputTokens)),
+							pc.gray(formatNumber(breakdown.cacheCreationTokens)),
+							pc.gray(formatNumber(breakdown.cacheReadTokens)),
+							pc.gray(formatNumber(totalTokens)),
+							pc.gray(formatCurrency(breakdown.cost)),
+							'', // Empty Last Activity column
+						]);
+					}
 				}
 				else {
 					// Normal mode: show separate rows for each source
@@ -291,13 +275,14 @@ export const sessionCommand = define({
 			}
 
 			// Add empty row for visual separation before totals
-			const totalsCols = ctx.values.breakdown ? 9 : 10;
+			const totalsCols = 10; // Always 10 columns now (Source column always present)
 			table.push(Array.from({ length: totalsCols }, () => ''));
 
 			// Add totals
 			if (ctx.values.breakdown) {
 				table.push([
 					pc.yellow('Total'),
+					'', // Empty for Session column in totals
 					'', // Empty for Models column in totals
 					pc.yellow(formatNumber(totals.inputTokens)),
 					pc.yellow(formatNumber(totals.outputTokens)),
