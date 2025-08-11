@@ -36,18 +36,18 @@ export const sessionCommand = define({
 
 		// Calculate current week boundaries if --full is not specified
 		let since = ctx.values.since;
-		let until = ctx.values.until;
+		const until = ctx.values.until;
 
 		if (!ctx.values.full && since == null && until == null) {
 			// Calculate current week (Monday to Sunday)
 			const now = new Date();
 			const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 			const mondayOffset = currentDay === 0 ? -6 : -(currentDay - 1); // Days to subtract to get to Monday
-			
+
 			const monday = new Date(now);
 			monday.setDate(now.getDate() + mondayOffset);
 			monday.setHours(0, 0, 0, 0);
-			
+
 			// Format as YYYYMMDD
 			const year = monday.getFullYear();
 			const month = String(monday.getMonth() + 1).padStart(2, '0');
@@ -180,8 +180,8 @@ export const sessionCommand = define({
 				maxSessionLength = Math.max(maxSessionLength, sessionDisplay.length);
 
 				// Determine the primary source for this session
-				const primarySource = data.sourceBreakdowns?.length > 0 
-					? data.sourceBreakdowns[0].source 
+				const primarySource = data.sourceBreakdowns?.length > 0
+					? data.sourceBreakdowns[0].source
 					: (data.sessionId.includes('ses_') ? 'opencode' : 'claude');
 
 				if (ctx.values.breakdown) {
@@ -203,14 +203,14 @@ export const sessionCommand = define({
 					for (const breakdown of data.modelBreakdowns) {
 						const totalTokens = breakdown.inputTokens + breakdown.outputTokens
 							+ breakdown.cacheCreationTokens + breakdown.cacheReadTokens;
-						
+
 						// Format model name (e.g., "claude-sonnet-4-20250514" -> "sonnet-4")
 						const match = breakdown.modelName.match(/claude-(\w+)-(\d+)-\d+/);
 						const formattedModelName = match != null ? `${match[1]}-${match[2]}` : breakdown.modelName;
-						
+
 						table.push([
 							'', // Empty Source column
-							'', // Empty Session column  
+							'', // Empty Session column
 							`  └─ ${formattedModelName}`, // Model name in Models column
 							pc.gray(formatNumber(breakdown.inputTokens)),
 							pc.gray(formatNumber(breakdown.outputTokens)),

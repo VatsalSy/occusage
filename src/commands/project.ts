@@ -36,18 +36,18 @@ export const projectCommand = define({
 
 		// Calculate current week boundaries if --full is not specified
 		let since = ctx.values.since;
-		let until = ctx.values.until;
+		const until = ctx.values.until;
 
 		if (!ctx.values.full && since == null && until == null) {
 			// Calculate current week (Monday to Sunday)
 			const now = new Date();
 			const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 			const mondayOffset = currentDay === 0 ? -6 : -(currentDay - 1); // Days to subtract to get to Monday
-			
+
 			const monday = new Date(now);
 			monday.setDate(now.getDate() + mondayOffset);
 			monday.setHours(0, 0, 0, 0);
-			
+
 			// Format as YYYYMMDD
 			const year = monday.getFullYear();
 			const month = String(monday.getMonth() + 1).padStart(2, '0');
