@@ -20,7 +20,6 @@
 		"./data-loader": "./dist/data-loader.js",
 		"./debug": "./dist/debug.js",
 		"./logger": "./dist/logger.js",
-		"./mcp": "./dist/mcp.js",
 		"./pricing-fetcher": "./dist/pricing-fetcher.js",
 		"./package.json": "./package.json"
 	},
@@ -31,44 +30,26 @@
 	"files": [
 		"dist"
 	],
-	"workspaces": [
-		".",
-		"docs"
-	],
 	"engines": {
 		"node": ">=20.19.4"
 	},
 	"scripts": {
-		"docs:build": "cd docs && bun run build",
-		"docs:deploy": "cd docs && bun run deploy",
-		"docs:dev": "cd docs && bun run dev",
-		"docs:preview": "cd docs && bun run preview",
-		"format": "bunx eslint --cache . --fix",
-		"lint": "bunx eslint --cache .",
-		"mcp": "bunx @modelcontextprotocol/inspector bun run start mcp",
 		"start": "bun run ./src/index.ts",
 		"test": "TZ=UTC bun test",
-		"test:statusline": "cat test/statusline-test.json | bun run start statusline",
-		"typecheck": "bunx tsc --noEmit"
+		"test:statusline": "cat test/statusline-test.json | bun run start statusline"
 	},
 	"devDependencies": {
 		"@antfu/utils": "^9.2.0",
 		"@core/errorutil": "npm:@jsr/core__errorutil",
-		"@hono/mcp": "^0.1.0",
 		"@hono/node-server": "^1.18.1",
 		"@jsr/std__async": "1",
-		"@modelcontextprotocol/sdk": "^1.17.2",
 		"@oxc-project/runtime": "^0.81.0",
 		"@praha/byethrow": "^0.6.2",
-		"@ryoppippi/eslint-config": "^0.3.7",
 		"@types/bun": "^1.2.19",
-		"@typescript/native-preview": "^7.0.0-dev.20250807.1",
 		"ansi-escapes": "^7.0.0",
 		"cli-table3": "^0.6.5",
 		"consola": "^3.4.2",
 		"es-toolkit": "^1.39.8",
-		"eslint": "^9.32.0",
-		"eslint-plugin-format": "^1.0.1",
 		"fast-sort": "^3.4.1",
 		"fs-fixture": "^2.8.1",
 		"get-stdin": "^9.0.0",

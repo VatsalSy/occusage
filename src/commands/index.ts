@@ -3,7 +3,6 @@ import { cli } from 'gunshi';
 import { description, name, version } from '../../package.json';
 import { blocksCommand } from './blocks.ts';
 import { dailyCommand } from './daily.ts';
-import { mcpCommand } from './mcp.ts';
 import { monthlyCommand } from './monthly.ts';
 import { projectCommand } from './project.ts';
 import { sessionCommand } from './session.ts';
@@ -22,7 +21,6 @@ subCommands.set('weekly', weeklyCommand);
 subCommands.set('session', sessionCommand);
 subCommands.set('project', projectCommand);
 subCommands.set('blocks', blocksCommand);
-subCommands.set('mcp', mcpCommand);
 subCommands.set('statusline', statuslineCommand);
 
 /**
