@@ -2,18 +2,25 @@
 	"name": "occusage",
 	"type": "module",
 	"version": "15.9.2",
-	"description": "Usage analysis tool for Claude Code",
-	"author": "ryoppippi",
+	"description": "OpenCode & Claude Code usage analysis tool - Enhanced fork with dual platform support",
+	"author": "Vatsal Aggarwal <vatsal@vatsalaggarwal.in>",
 	"license": "MIT",
-	"funding": "https://github.com/ryoppippi/occusage?sponsor=1",
-	"homepage": "https://github.com/ryoppippi/occusage#readme",
+	"funding": "https://github.com/VatsalSy/occusage?sponsor=1",
+	"homepage": "https://github.com/VatsalSy/occusage#readme",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/ryoppippi/occusage.git"
+		"url": "git+https://github.com/VatsalSy/occusage.git"
 	},
 	"bugs": {
-		"url": "https://github.com/ryoppippi/occusage/issues"
+		"url": "https://github.com/VatsalSy/occusage/issues"
 	},
+	"contributors": [
+		{
+			"name": "ryoppippi",
+			"url": "https://github.com/ryoppippi",
+			"role": "Original creator of ccusage"
+		}
+	],
 	"exports": {
 		".": "./dist/index.js",
 		"./calculate-cost": "./dist/calculate-cost.js",
