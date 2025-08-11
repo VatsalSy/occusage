@@ -10,6 +10,7 @@
 
 import type { IntRange, TupleToUnion } from 'type-fest';
 import type { WEEK_DAYS } from './_consts.ts';
+import type { OpenCodeUsageEntry } from './_opencode-types.ts';
 import type { LoadedUsageEntry, SessionBlock } from './_session-blocks.ts';
 import type {
 	ActivityDate,
@@ -340,6 +341,23 @@ export const modelBreakdownSchema = z.object({
 export type ModelBreakdown = z.infer<typeof modelBreakdownSchema>;
 
 /**
+ * Zod schema for source-specific usage breakdown data
+ */
+export const sourceBreakdownSchema = z.object({
+	source: z.enum(['claude', 'opencode']),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	cacheCreationTokens: z.number(),
+	cacheReadTokens: z.number(),
+	totalCost: z.number(),
+});
+
+/**
+ * Type definition for source-specific usage breakdown
+ */
+export type SourceBreakdown = z.infer<typeof sourceBreakdownSchema>;
+
+/**
  * Zod schema for daily usage aggregation data
  */
 export const dailyUsageSchema = z.object({
@@ -351,6 +369,7 @@ export const dailyUsageSchema = z.object({
 	totalCost: z.number(),
 	modelsUsed: z.array(modelNameSchema),
 	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
 	project: z.string().optional(), // Project name when groupByProject is enabled
 });
 
@@ -374,6 +393,7 @@ export const sessionUsageSchema = z.object({
 	versions: z.array(versionSchema), // List of unique versions used in this session
 	modelsUsed: z.array(modelNameSchema),
 	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
 });
 
 /**
@@ -393,6 +413,7 @@ export const monthlyUsageSchema = z.object({
 	totalCost: z.number(),
 	modelsUsed: z.array(modelNameSchema),
 	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
 	project: z.string().optional(), // Project name when groupByProject is enabled
 });
 
@@ -413,6 +434,7 @@ export const weeklyUsageSchema = z.object({
 	totalCost: z.number(),
 	modelsUsed: z.array(modelNameSchema),
 	modelBreakdowns: z.array(modelBreakdownSchema),
+	sourceBreakdowns: z.array(sourceBreakdownSchema),
 	project: z.string().optional(), // Project name when groupByProject is enabled
 });
 
@@ -868,6 +890,100 @@ export async function calculateCostForEntry(
 }
 
 /**
+ * Calculate cost for a LoadedUsageEntry based on the cost mode
+ * @param entry - The loaded usage entry
+ * @param mode - Cost calculation mode
+ * @param fetcher - Pricing fetcher instance
+ * @returns Calculated cost in USD
+ */
+async function calculateCostForLoadedEntry(
+	entry: LoadedUsageEntry,
+	mode: CostMode,
+	fetcher: PricingFetcher,
+): Promise<number> {
+	if (mode === 'display') {
+		// Always use costUSD, even if null
+		return entry.costUSD ?? 0;
+	}
+
+	if (mode === 'calculate') {
+		// Always calculate from tokens
+		const tokens = {
+			input_tokens: entry.usage.inputTokens,
+			output_tokens: entry.usage.outputTokens,
+			cache_creation_input_tokens: entry.usage.cacheCreationInputTokens,
+			cache_read_input_tokens: entry.usage.cacheReadInputTokens,
+		};
+		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
+	}
+
+	if (mode === 'auto') {
+		// Auto mode: use costUSD if available, otherwise calculate
+		if (entry.costUSD != null) {
+			return entry.costUSD;
+		}
+
+		// Calculate from tokens when costUSD is missing (e.g., OpenCode entries)
+		const tokens = {
+			input_tokens: entry.usage.inputTokens,
+			output_tokens: entry.usage.outputTokens,
+			cache_creation_input_tokens: entry.usage.cacheCreationInputTokens,
+			cache_read_input_tokens: entry.usage.cacheReadInputTokens,
+		};
+		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
+	}
+
+	unreachable(mode);
+}
+
+/**
+ * Calculate cost for OpenCode usage entry
+ * @param entry - OpenCode usage entry
+ * @param mode - Cost calculation mode
+ * @param fetcher - Pricing fetcher instance
+ * @returns Calculated cost in USD
+ */
+async function calculateCostForOpenCodeEntry(
+	entry: OpenCodeUsageEntry,
+	mode: CostMode,
+	fetcher: PricingFetcher,
+): Promise<number> {
+	if (mode === 'display') {
+		// Always use cost, even if null
+		return entry.cost ?? 0;
+	}
+
+	if (mode === 'calculate') {
+		// Always calculate from tokens
+		const tokens = {
+			input_tokens: entry.tokens.input,
+			output_tokens: entry.tokens.output,
+			cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
+			cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+		};
+		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
+	}
+
+	if (mode === 'auto') {
+		// Auto mode: use cost if available, otherwise calculate
+		if (entry.cost != null) {
+			return entry.cost;
+		}
+
+		// Calculate from tokens when cost is missing (typical for OpenCode entries)
+		const tokens = {
+			input_tokens: entry.tokens.input,
+			output_tokens: entry.tokens.output,
+			cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
+			cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+		};
+		return Result.unwrap(fetcher.calculateCostFromTokens(tokens, entry.model), 0);
+	}
+
+	unreachable(mode);
+}
+
+/**
  * Get Claude Code usage limit expiration date
  * @param data - Usage data entry
  * @returns Usage limit expiration date
@@ -940,6 +1056,7 @@ export type LoadOptions = {
 	groupByProject?: boolean; // Group data by project instead of aggregating
 	project?: string; // Filter to specific project name
 	startOfWeek?: WeekDay; // Start of week for weekly aggregation
+	startOfMonth?: number; // Start of month for monthly aggregation (1-31, defaults to 1)
 	timezone?: string; // Timezone for date grouping (e.g., 'UTC', 'America/New_York'). Defaults to system timezone
 	locale?: string; // Locale for date/time formatting (e.g., 'en-US', 'ja-JP'). Defaults to 'en-US'
 	sources?: Array<'claude' | 'opencode'>; // Filter by data sources (defaults to both)
@@ -1592,11 +1709,21 @@ export async function loadSessionBlockData(
 		try {
 			const openCodeEntries = loadOpenCodeData(options?.openCodePath);
 
+			// Initialize pricing fetcher for OpenCode cost calculation if needed
+			const mode = options?.mode ?? 'auto';
+			using openCodeFetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+
 			// Convert OpenCode entries to LoadedUsageEntry format
 			for (const entry of openCodeEntries) {
 				// Filter by project if specified
 				if (options?.project != null && !entry.projectPath.includes(options.project)) {
 					continue;
+				}
+
+				// Calculate cost for OpenCode entries when costUSD is null
+				let calculatedCost = entry.cost ?? null;
+				if (calculatedCost == null && openCodeFetcher != null) {
+					calculatedCost = await calculateCostForOpenCodeEntry(entry, mode, openCodeFetcher);
 				}
 
 				allEntries.push({
@@ -1608,7 +1735,7 @@ export async function loadSessionBlockData(
 						cacheCreationInputTokens: entry.tokens.cache?.write ?? 0,
 						cacheReadInputTokens: entry.tokens.cache?.read ?? 0,
 					},
-					costUSD: entry.cost ?? null,
+					costUSD: calculatedCost,
 					model: entry.model,
 				});
 			}
@@ -1660,6 +1787,10 @@ export async function loadUnifiedDailyUsageData(
 		return [];
 	}
 
+	// Initialize pricing fetcher for cost calculation
+	const mode = options?.mode ?? 'auto';
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+
 	// Group entries by date
 	const dailyMap = new Map<string, {
 		inputTokens: number;
@@ -1669,6 +1800,7 @@ export async function loadUnifiedDailyUsageData(
 		totalCost: number;
 		modelsUsed: Set<string>;
 		modelBreakdowns: Map<string, ModelBreakdown>;
+		sourceBreakdowns: Map<'claude' | 'opencode', SourceBreakdown>;
 		project?: string;
 	}>();
 
@@ -1686,6 +1818,7 @@ export async function loadUnifiedDailyUsageData(
 					totalCost: 0,
 					modelsUsed: new Set(),
 					modelBreakdowns: new Map(),
+					sourceBreakdowns: new Map(),
 					project: options?.groupByProject === true ? extractProjectFromEntry(entry) : undefined,
 				});
 			}
@@ -1695,17 +1828,23 @@ export async function loadUnifiedDailyUsageData(
 			daily.outputTokens += entry.usage.outputTokens;
 			daily.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
 			daily.cacheReadTokens += entry.usage.cacheReadInputTokens;
-			daily.totalCost += entry.costUSD;
+
+			// Calculate cost using the pricing fetcher (handles null costUSD for OpenCode)
+			const entryCost = fetcher != null
+				? await calculateCostForLoadedEntry(entry, mode, fetcher)
+				: entry.costUSD ?? 0;
+			daily.totalCost += entryCost;
 			daily.modelsUsed.add(entry.model);
 
 			// Track model breakdown
 			if (!daily.modelBreakdowns.has(entry.model)) {
 				daily.modelBreakdowns.set(entry.model, {
+					modelName: entry.model as any,
 					inputTokens: 0,
 					outputTokens: 0,
 					cacheCreationTokens: 0,
 					cacheReadTokens: 0,
-					totalCost: 0,
+					cost: 0,
 				});
 			}
 			const breakdown = daily.modelBreakdowns.get(entry.model)!;
@@ -1713,20 +1852,39 @@ export async function loadUnifiedDailyUsageData(
 			breakdown.outputTokens += entry.usage.outputTokens;
 			breakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
 			breakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
-			breakdown.totalCost += entry.costUSD;
+			breakdown.cost += entryCost;
+
+			// Track source breakdown
+			if (!daily.sourceBreakdowns.has(entry.source)) {
+				daily.sourceBreakdowns.set(entry.source, {
+					source: entry.source,
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+				});
+			}
+			const sourceBreakdown = daily.sourceBreakdowns.get(entry.source)!;
+			sourceBreakdown.inputTokens += entry.usage.inputTokens;
+			sourceBreakdown.outputTokens += entry.usage.outputTokens;
+			sourceBreakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			sourceBreakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			sourceBreakdown.totalCost += entryCost;
 		}
 	}
 
 	// Convert to DailyUsage array
 	const result: DailyUsage[] = Array.from(dailyMap.entries()).map(([date, data]) => ({
-		date,
+		date: date as any,
 		inputTokens: data.inputTokens,
 		outputTokens: data.outputTokens,
 		cacheCreationTokens: data.cacheCreationTokens,
 		cacheReadTokens: data.cacheReadTokens,
 		totalCost: data.totalCost,
-		modelsUsed: Array.from(data.modelsUsed).sort(),
-		modelBreakdowns: Object.fromEntries(data.modelBreakdowns),
+		modelsUsed: Array.from(data.modelsUsed).sort() as any,
+		modelBreakdowns: Array.from(data.modelBreakdowns.values()),
+		sourceBreakdowns: Array.from(data.sourceBreakdowns.values()),
 		project: data.project,
 	}));
 
@@ -1761,12 +1919,29 @@ export async function loadUnifiedMonthlyUsageData(
 		totalCost: number;
 		modelsUsed: Set<string>;
 		modelBreakdowns: Map<string, ModelBreakdown>;
+		sourceBreakdowns: Map<'claude' | 'opencode', SourceBreakdown>;
 	}>();
+
+	// Helper function to get custom month key based on start day
+	const getCustomMonthKey = (timestamp: string): string => {
+		const date = new Date(timestamp);
+		const startDay = options?.startOfMonth ?? 1;
+		
+		// If we're before the start day, this entry belongs to the previous month's cycle
+		if (date.getDate() < startDay) {
+			const prevMonth = new Date(date.getFullYear(), date.getMonth() - 1, startDay);
+			return formatDate(prevMonth.toISOString(), options?.timezone, options?.locale).substring(0, 7);
+		} else {
+			// This entry belongs to the current month's cycle
+			const currentMonth = new Date(date.getFullYear(), date.getMonth(), startDay);
+			return formatDate(currentMonth.toISOString(), options?.timezone, options?.locale).substring(0, 7);
+		}
+	};
 
 	for (const block of blocks) {
 		for (const entry of block.entries) {
-			// Format as YYYY-MM for monthly grouping
-			const monthKey = formatDate(entry.timestamp, options?.timezone, options?.locale).substring(0, 7);
+			// Use custom month grouping based on start day
+			const monthKey = getCustomMonthKey(entry.timestamp);
 
 			if (!monthlyMap.has(monthKey)) {
 				monthlyMap.set(monthKey, {
@@ -1777,6 +1952,7 @@ export async function loadUnifiedMonthlyUsageData(
 					totalCost: 0,
 					modelsUsed: new Set(),
 					modelBreakdowns: new Map(),
+					sourceBreakdowns: new Map(),
 				});
 			}
 
@@ -1785,17 +1961,18 @@ export async function loadUnifiedMonthlyUsageData(
 			monthly.outputTokens += entry.usage.outputTokens;
 			monthly.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
 			monthly.cacheReadTokens += entry.usage.cacheReadInputTokens;
-			monthly.totalCost += entry.costUSD;
+			monthly.totalCost += entry.costUSD ?? 0;
 			monthly.modelsUsed.add(entry.model);
 
 			// Track model breakdown
 			if (!monthly.modelBreakdowns.has(entry.model)) {
 				monthly.modelBreakdowns.set(entry.model, {
+					modelName: entry.model as any,
 					inputTokens: 0,
 					outputTokens: 0,
 					cacheCreationTokens: 0,
 					cacheReadTokens: 0,
-					totalCost: 0,
+					cost: 0,
 				});
 			}
 			const breakdown = monthly.modelBreakdowns.get(entry.model)!;
@@ -1803,20 +1980,39 @@ export async function loadUnifiedMonthlyUsageData(
 			breakdown.outputTokens += entry.usage.outputTokens;
 			breakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
 			breakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
-			breakdown.totalCost += entry.costUSD;
+			breakdown.cost += entry.costUSD ?? 0;
+
+			// Track source breakdown
+			if (!monthly.sourceBreakdowns.has(entry.source)) {
+				monthly.sourceBreakdowns.set(entry.source, {
+					source: entry.source,
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+				});
+			}
+			const sourceBreakdown = monthly.sourceBreakdowns.get(entry.source)!;
+			sourceBreakdown.inputTokens += entry.usage.inputTokens;
+			sourceBreakdown.outputTokens += entry.usage.outputTokens;
+			sourceBreakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			sourceBreakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			sourceBreakdown.totalCost += entry.costUSD ?? 0;
 		}
 	}
 
 	// Convert to MonthlyUsage array
 	const result: MonthlyUsage[] = Array.from(monthlyMap.entries()).map(([month, data]) => ({
-		month,
+		month: month as any,
 		inputTokens: data.inputTokens,
 		outputTokens: data.outputTokens,
 		cacheCreationTokens: data.cacheCreationTokens,
 		cacheReadTokens: data.cacheReadTokens,
 		totalCost: data.totalCost,
-		modelsUsed: Array.from(data.modelsUsed).sort(),
-		modelBreakdowns: Object.fromEntries(data.modelBreakdowns),
+		modelsUsed: Array.from(data.modelsUsed).sort() as any,
+		modelBreakdowns: Array.from(data.modelBreakdowns.values()),
+		sourceBreakdowns: Array.from(data.sourceBreakdowns.values()),
 	}));
 
 	// Sort by month
@@ -1850,6 +2046,7 @@ export async function loadUnifiedWeeklyUsageData(
 		totalCost: number;
 		modelsUsed: Set<string>;
 		modelBreakdowns: Map<string, ModelBreakdown>;
+		sourceBreakdowns: Map<'claude' | 'opencode', SourceBreakdown>;
 	}>();
 
 	for (const block of blocks) {
@@ -1871,6 +2068,7 @@ export async function loadUnifiedWeeklyUsageData(
 					totalCost: 0,
 					modelsUsed: new Set(),
 					modelBreakdowns: new Map(),
+					sourceBreakdowns: new Map(),
 				});
 			}
 
@@ -1879,17 +2077,18 @@ export async function loadUnifiedWeeklyUsageData(
 			weekly.outputTokens += entry.usage.outputTokens;
 			weekly.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
 			weekly.cacheReadTokens += entry.usage.cacheReadInputTokens;
-			weekly.totalCost += entry.costUSD;
+			weekly.totalCost += entry.costUSD ?? 0;
 			weekly.modelsUsed.add(entry.model);
 
 			// Track model breakdown
 			if (!weekly.modelBreakdowns.has(entry.model)) {
 				weekly.modelBreakdowns.set(entry.model, {
+					modelName: entry.model as any,
 					inputTokens: 0,
 					outputTokens: 0,
 					cacheCreationTokens: 0,
 					cacheReadTokens: 0,
-					totalCost: 0,
+					cost: 0,
 				});
 			}
 			const breakdown = weekly.modelBreakdowns.get(entry.model)!;
@@ -1897,20 +2096,39 @@ export async function loadUnifiedWeeklyUsageData(
 			breakdown.outputTokens += entry.usage.outputTokens;
 			breakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
 			breakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
-			breakdown.totalCost += entry.costUSD;
+			breakdown.cost += entry.costUSD ?? 0;
+
+			// Track source breakdown
+			if (!weekly.sourceBreakdowns.has(entry.source)) {
+				weekly.sourceBreakdowns.set(entry.source, {
+					source: entry.source,
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+				});
+			}
+			const sourceBreakdown = weekly.sourceBreakdowns.get(entry.source)!;
+			sourceBreakdown.inputTokens += entry.usage.inputTokens;
+			sourceBreakdown.outputTokens += entry.usage.outputTokens;
+			sourceBreakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			sourceBreakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			sourceBreakdown.totalCost += entry.costUSD ?? 0;
 		}
 	}
 
 	// Convert to WeeklyUsage array
 	const result: WeeklyUsage[] = Array.from(weeklyMap.entries()).map(([week, data]) => ({
-		week,
+		week: week as any,
 		inputTokens: data.inputTokens,
 		outputTokens: data.outputTokens,
 		cacheCreationTokens: data.cacheCreationTokens,
 		cacheReadTokens: data.cacheReadTokens,
 		totalCost: data.totalCost,
-		modelsUsed: Array.from(data.modelsUsed).sort(),
-		modelBreakdowns: Object.fromEntries(data.modelBreakdowns),
+		modelsUsed: Array.from(data.modelsUsed).sort() as any,
+		modelBreakdowns: Array.from(data.modelBreakdowns.values()),
+		sourceBreakdowns: Array.from(data.sourceBreakdowns.values()),
 	}));
 
 	// Sort by week

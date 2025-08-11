@@ -3,8 +3,8 @@ import { Result } from '@praha/byethrow';
 import { define } from 'gunshi';
 import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
-import { sharedCommandConfig } from '../_shared-args.ts';
-import { formatCurrency, formatModelsDisplayMultiline, formatNumber, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
+import { sharedArgs } from '../_shared-args.ts';
+import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
 	createTotalsObject,
@@ -13,11 +13,63 @@ import {
 import { formatDateCompact, loadUnifiedMonthlyUsageData } from '../data-loader.ts';
 import { detectMismatches, printMismatchReport } from '../debug.ts';
 import { log, logger } from '../logger.ts';
+import type { ModelBreakdown, MonthlyUsage } from '../data-loader.ts';
+import type { ModelName } from '../_types.ts';
+
+/**
+ * Aggregates model breakdowns across all sources for a monthly period
+ * This ensures we show combined totals per model in breakdown mode
+ */
+function aggregateMonthlyModelBreakdowns(data: MonthlyUsage): ModelBreakdown[] {
+	const modelAggregates = new Map<string, {
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+		cacheReadTokens: number;
+		cost: number;
+	}>();
+
+	// Aggregate from existing model breakdowns
+	for (const breakdown of data.modelBreakdowns) {
+		const existing = modelAggregates.get(breakdown.modelName) ?? {
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheCreationTokens: 0,
+			cacheReadTokens: 0,
+			cost: 0,
+		};
+
+		modelAggregates.set(breakdown.modelName, {
+			inputTokens: existing.inputTokens + breakdown.inputTokens,
+			outputTokens: existing.outputTokens + breakdown.outputTokens,
+			cacheCreationTokens: existing.cacheCreationTokens + breakdown.cacheCreationTokens,
+			cacheReadTokens: existing.cacheReadTokens + breakdown.cacheReadTokens,
+			cost: existing.cost + breakdown.cost,
+		});
+	}
+
+	// Convert to ModelBreakdown array and sort by cost descending
+	return Array.from(modelAggregates.entries())
+		.map(([modelName, stats]) => ({
+			modelName: modelName as ModelName,
+			...stats,
+		}))
+		.sort((a, b) => b.cost - a.cost);
+}
 
 export const monthlyCommand = define({
 	name: 'monthly',
 	description: 'Show usage report grouped by month',
-	...sharedCommandConfig,
+	args: {
+		...sharedArgs,
+		startOfMonth: {
+			type: 'number',
+			short: 'M',
+			description: 'Day of month to start billing cycle on (1-31)',
+			default: 11,
+		},
+	},
+	toKebab: true,
 	async run(ctx) {
 		// --jq implies --json
 		const useJson = ctx.values.json || ctx.values.jq != null;
@@ -33,6 +85,7 @@ export const monthlyCommand = define({
 			offline: ctx.values.offline,
 			timezone: ctx.values.timezone,
 			locale: ctx.values.locale,
+			startOfMonth: ctx.values.startOfMonth,
 		});
 
 		if (monthlyData.length === 0) {
@@ -101,90 +154,232 @@ export const monthlyCommand = define({
 
 			// Create table with compact mode support
 			const table = new ResponsiveTable({
-				head: [
-					'Month',
-					'Models',
-					'Input',
-					'Output',
-					'Cache Create',
-					'Cache Read',
-					'Total Tokens',
-					'Cost (USD)',
-				],
+				head: ctx.values.breakdown
+					? [
+							'Month',
+							'Models',
+							'Input',
+							'Output',
+							'Cache Create',
+							'Cache Read',
+							'Total Tokens',
+							'Cost (USD)',
+						]
+					: [
+							'Source',
+							'Month',
+							'Models',
+							'Input',
+							'Output',
+							'Cache Create',
+							'Cache Read',
+							'Total Tokens',
+							'Cost (USD)',
+						],
 				style: {
 					head: ['cyan'],
 				},
-				colAligns: [
-					'left',
-					'left',
-					'right',
-					'right',
-					'right',
-					'right',
-					'right',
-					'right',
-				],
+				colAligns: ctx.values.breakdown
+					? [
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+						]
+					: [
+							'center',
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+						],
 				dateFormatter: (dateStr: string) => formatDateCompact(dateStr, ctx.values.timezone, ctx.values.locale),
-				compactHead: [
-					'Month',
-					'Models',
-					'Input',
-					'Output',
-					'Cost (USD)',
-				],
-				compactColAligns: [
-					'left',
-					'left',
-					'right',
-					'right',
-					'right',
-				],
+				compactHead: ctx.values.breakdown
+					? [
+							'Month',
+							'Models',
+							'Input',
+							'Output',
+							'Cost (USD)',
+						]
+					: [
+							'Source',
+							'Month',
+							'Models',
+							'Input',
+							'Output',
+							'Cost (USD)',
+						],
+				compactColAligns: ctx.values.breakdown
+					? [
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+						]
+					: [
+							'center',
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+						],
 				compactThreshold: 100,
 			});
 
 			// Add monthly data
-			for (const data of monthlyData) {
-				// Main row
-				table.push([
-					data.month,
-					formatModelsDisplayMultiline(data.modelsUsed),
-					formatNumber(data.inputTokens),
-					formatNumber(data.outputTokens),
-					formatNumber(data.cacheCreationTokens),
-					formatNumber(data.cacheReadTokens),
-					formatNumber(getTotalTokens(data)),
-					formatCurrency(data.totalCost),
-				]);
+			let previousMonth = '';
+			let isFirstMonth = true;
 
-				// Add model breakdown rows if flag is set
+			for (const data of monthlyData) {
+				// Format month display with start day indicator
+				const startDay = ctx.values.startOfMonth;
+				const monthDisplay = startDay !== 1 ? `${data.month} (${startDay}th)` : data.month;
+
 				if (ctx.values.breakdown) {
-					pushBreakdownRows(table, data.modelBreakdowns);
+					// In breakdown mode, show aggregated totals per month
+					// Add visual separation between different months
+					if (data.month !== previousMonth && !isFirstMonth) {
+						// Add separator row between months
+						const separatorCols = 8; // 8 columns in breakdown mode
+						table.push(Array.from({ length: separatorCols }, (_, i) => i === 0 ? pc.dim('─'.repeat(15)) : ''));
+					}
+
+					// Show one row per month with aggregated totals
+					table.push([
+						monthDisplay,
+						formatModelsDisplayMultiline(data.modelsUsed),
+						formatNumber(data.inputTokens),
+						formatNumber(data.outputTokens),
+						formatNumber(data.cacheCreationTokens),
+						formatNumber(data.cacheReadTokens),
+						formatNumber(getTotalTokens(data)),
+						formatCurrency(data.totalCost),
+					]);
+
+					// Add model breakdown rows with aggregated data
+					const aggregatedBreakdowns = aggregateMonthlyModelBreakdowns(data);
+					for (const breakdown of aggregatedBreakdowns) {
+						const totalTokens = breakdown.inputTokens + breakdown.outputTokens
+							+ breakdown.cacheCreationTokens + breakdown.cacheReadTokens;
+
+						// Format model name (e.g., "claude-sonnet-4-20250514" -> "sonnet-4")
+						const match = breakdown.modelName.match(/claude-(\w+)-(\d+)-\d+/);
+						const formattedModelName = match != null ? `${match[1]}-${match[2]}` : breakdown.modelName;
+
+						table.push([
+							'', // Empty Month column
+							`└─ ${formattedModelName}`, // Model name in Models column
+							formatNumber(breakdown.inputTokens),
+							formatNumber(breakdown.outputTokens),
+							formatNumber(breakdown.cacheCreationTokens),
+							formatNumber(breakdown.cacheReadTokens),
+							formatNumber(totalTokens),
+							formatCurrency(breakdown.cost),
+						]);
+					}
 				}
+				else {
+					// Normal mode with source separation
+					// Add visual separation between different months
+					if (data.month !== previousMonth && !isFirstMonth) {
+						// Add separator row between months
+						table.push(['', pc.dim('─'.repeat(15)), '', '', '', '', '', '', '']);
+					}
+
+					// Show separate rows for each source
+					if (data.sourceBreakdowns?.length > 0) {
+						for (const sourceBreakdown of data.sourceBreakdowns) {
+							table.push([
+								formatSources([sourceBreakdown.source]),
+								monthDisplay,
+								formatModelsDisplayMultiline(data.modelsUsed),
+								formatNumber(sourceBreakdown.inputTokens),
+								formatNumber(sourceBreakdown.outputTokens),
+								formatNumber(sourceBreakdown.cacheCreationTokens),
+								formatNumber(sourceBreakdown.cacheReadTokens),
+								formatNumber(sourceBreakdown.inputTokens + sourceBreakdown.outputTokens + sourceBreakdown.cacheCreationTokens + sourceBreakdown.cacheReadTokens),
+								formatCurrency(sourceBreakdown.totalCost),
+							]);
+						}
+
+						// Add total row if there are multiple sources
+						if (data.sourceBreakdowns.length > 1) {
+							table.push([
+								pc.bold('TOTAL'),
+								monthDisplay,
+								formatModelsDisplayMultiline(data.modelsUsed),
+								formatNumber(data.inputTokens),
+								formatNumber(data.outputTokens),
+								formatNumber(data.cacheCreationTokens),
+								formatNumber(data.cacheReadTokens),
+								formatNumber(getTotalTokens(data)),
+								formatCurrency(data.totalCost),
+							]);
+						}
+					}
+					else {
+						// Fallback for data without source breakdowns
+						table.push([
+							'',
+							monthDisplay,
+							formatModelsDisplayMultiline(data.modelsUsed),
+							formatNumber(data.inputTokens),
+							formatNumber(data.outputTokens),
+							formatNumber(data.cacheCreationTokens),
+							formatNumber(data.cacheReadTokens),
+							formatNumber(getTotalTokens(data)),
+							formatCurrency(data.totalCost),
+						]);
+					}
+				}
+
+				previousMonth = data.month;
+				isFirstMonth = false;
 			}
 
 			// Add empty row for visual separation before totals
-			table.push([
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-			]);
+			const emptyRowCols = ctx.values.breakdown ? 8 : 9;
+			table.push(Array.from({ length: emptyRowCols }, () => ''));
 
 			// Add totals
-			table.push([
-				pc.yellow('Total'),
-				'', // Empty for Models column in totals
-				pc.yellow(formatNumber(totals.inputTokens)),
-				pc.yellow(formatNumber(totals.outputTokens)),
-				pc.yellow(formatNumber(totals.cacheCreationTokens)),
-				pc.yellow(formatNumber(totals.cacheReadTokens)),
-				pc.yellow(formatNumber(getTotalTokens(totals))),
-				pc.yellow(formatCurrency(totals.totalCost)),
-			]);
+			if (ctx.values.breakdown) {
+				// Breakdown mode: 8 columns
+				table.push([
+					pc.yellow('Total'),
+					'', // Empty for Models column in totals
+					pc.yellow(formatNumber(totals.inputTokens)),
+					pc.yellow(formatNumber(totals.outputTokens)),
+					pc.yellow(formatNumber(totals.cacheCreationTokens)),
+					pc.yellow(formatNumber(totals.cacheReadTokens)),
+					pc.yellow(formatNumber(getTotalTokens(totals))),
+					pc.yellow(formatCurrency(totals.totalCost)),
+				]);
+			}
+			else {
+				// Normal mode: 9 columns
+				table.push([
+					pc.yellow('Total'),
+					'', // Empty for Month column in totals
+					'', // Empty for Models column in totals
+					pc.yellow(formatNumber(totals.inputTokens)),
+					pc.yellow(formatNumber(totals.outputTokens)),
+					pc.yellow(formatNumber(totals.cacheCreationTokens)),
+					pc.yellow(formatNumber(totals.cacheReadTokens)),
+					pc.yellow(formatNumber(getTotalTokens(totals))),
+					pc.yellow(formatCurrency(totals.totalCost)),
+				]);
+			}
 
 			log(table.toString());
 
