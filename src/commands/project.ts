@@ -185,14 +185,14 @@ export const projectCommand = define({
 			});
 
 			// Add project data with visual separation between projects
-			let previousHadTotal = false;
+			let isFirstProject = true;
 
 			for (let i = 0; i < projectData.length; i++) {
 				const data = projectData[i];
 				
-				// Add visual separation after projects with totals
-				if (previousHadTotal && !ctx.values.breakdown) {
-					// Add separator row after total rows
+				// Add visual separation before projects with multiple sources (but not before the first project)
+				if (!isFirstProject && !ctx.values.breakdown && data.sourceBreakdowns?.length > 1) {
+					// Add separator row before projects that have multiple sources
 					const separatorCols = 10;
 					table.push(Array.from({ length: separatorCols }, (_, idx) => idx === 1 ? pc.dim('───────────────') : ''));
 				}
@@ -246,10 +246,12 @@ export const projectCommand = define({
 								formatCurrency(data.totalCost),
 								data.lastActivity,
 							]);
-							previousHadTotal = true;
-						}
-						else {
-							previousHadTotal = false;
+							
+							// Add separator after TOTAL row (if not the last project)
+							if (i < projectData.length - 1) {
+								const separatorCols = 10;
+								table.push(Array.from({ length: separatorCols }, (_, idx) => idx === 1 ? pc.dim('───────────────') : ''));
+							}
 						}
 					}
 					else {
@@ -266,9 +268,10 @@ export const projectCommand = define({
 							formatCurrency(data.totalCost),
 							data.lastActivity,
 						]);
-						previousHadTotal = false;
 					}
 				}
+				
+				isFirstProject = false;
 			}
 
 			// Add empty row for visual separation before totals
