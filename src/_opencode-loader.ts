@@ -15,10 +15,33 @@ import {
 import { logger } from './logger.ts';
 
 /**
+ * Encode project path for OpenCode storage using URL encoding
+ */
+function encodeProjectPath(path: string): string {
+	// Remove leading slash if present
+	const pathWithoutSlash = path.startsWith('/') ? path.slice(1) : path;
+	return encodeURIComponent(pathWithoutSlash);
+}
+
+/**
  * Decode OpenCode encoded project path to readable format
+ * Uses URL decoding with fallback to legacy dash replacement for backward compatibility
  */
 function decodeProjectPath(encodedPath: string): string {
-	// OpenCode encodes paths like "Users-vatsal-projects-myproject"
+	// Check if this looks like URL encoding (contains % characters)
+	if (encodedPath.includes('%')) {
+		try {
+			// Try URL decoding first (new encoding method)
+			const decodedPath = decodeURIComponent(encodedPath);
+			// Ensure leading slash
+			return decodedPath.startsWith('/') ? decodedPath : `/${decodedPath}`;
+		} catch {
+			// If URL decoding fails, fall through to legacy method
+		}
+	}
+	
+	// Fallback to legacy dash replacement for backward compatibility
+	// OpenCode previously encoded paths like "Users-vatsal-projects-myproject"
 	// Convert back to "/Users/vatsal/projects/myproject"
 	return `/${encodedPath.replace(/-/g, '/')}`;
 }
@@ -296,4 +319,61 @@ export function loadOpenCodeData(openCodePath?: string, suppressLogs = false): O
 		logger.info(`Loaded ${allEntries.length} OpenCode usage entries`);
 	}
 	return allEntries;
+}
+
+// In-source tests
+if (import.meta.vitest != null) {
+	const { describe, it, expect } = import.meta.vitest;
+
+	describe('Project path encoding/decoding', () => {
+		it('should encode and decode paths with dashes correctly', () => {
+			const originalPath = '/Users/vatsal/my-project';
+			const encoded = encodeProjectPath(originalPath);
+			const decoded = decodeProjectPath(encoded);
+			expect(decoded).toBe(originalPath);
+		});
+
+		it('should encode and decode paths with spaces correctly', () => {
+			const originalPath = '/Users/vatsal/my project';
+			const encoded = encodeProjectPath(originalPath);
+			const decoded = decodeProjectPath(encoded);
+			expect(decoded).toBe(originalPath);
+		});
+
+		it('should encode and decode paths with special characters correctly', () => {
+			const originalPath = '/Users/vatsal/project@2024';
+			const encoded = encodeProjectPath(originalPath);
+			const decoded = decodeProjectPath(encoded);
+			expect(decoded).toBe(originalPath);
+		});
+
+		it('should handle paths without leading slash in encoder', () => {
+			const pathWithoutSlash = 'Users/vatsal/my-project';
+			const pathWithSlash = '/Users/vatsal/my-project';
+			const encodedWithout = encodeProjectPath(pathWithoutSlash);
+			const encodedWith = encodeProjectPath(pathWithSlash);
+			expect(encodedWithout).toBe(encodedWith);
+		});
+
+		it('should ensure decoded paths always have leading slash', () => {
+			const originalPath = '/Users/vatsal/my-project';
+			const encoded = encodeProjectPath(originalPath);
+			const decoded = decodeProjectPath(encoded);
+			expect(decoded.startsWith('/')).toBe(true);
+		});
+
+		it('should fallback to legacy dash replacement for dash-encoded paths', () => {
+			// Test with a path that looks like legacy encoding (no % characters)
+			const legacyEncoded = 'Users-vatsal-my-project';
+			const decoded = decodeProjectPath(legacyEncoded);
+			expect(decoded).toBe('/Users/vatsal/my/project');
+		});
+
+		it('should handle complex paths with multiple special characters', () => {
+			const originalPath = '/Users/vatsal/my-project (2024) #1';
+			const encoded = encodeProjectPath(originalPath);
+			const decoded = decodeProjectPath(encoded);
+			expect(decoded).toBe(originalPath);
+		});
+	});
 }

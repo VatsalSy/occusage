@@ -289,6 +289,137 @@ bun run build
 bun run release
 ```
 
+### Testing
+
+This project uses **in-source testing** with Vitest, where tests are written directly in the same files as the source code.
+
+#### Running Tests
+
+```bash
+# Run all tests
+bun test
+
+# Run tests with timezone consistency
+TZ=UTC bun test
+
+# Run specific test file (statusline test)
+bun run test:statusline
+
+# Check test coverage across source files
+bun test --coverage
+```
+
+#### Writing In-Source Tests
+
+Tests are written at the bottom of source files using the `import.meta.vitest` pattern:
+
+```typescript
+// In-source tests
+if (import.meta.vitest != null) {
+    const { describe, it, expect } = import.meta.vitest;
+    
+    describe('Your feature', () => {
+        it('should do something', () => {
+            const result = yourFunction();
+            expect(result).toBe(expectedValue);
+        });
+    });
+}
+```
+
+#### Testing Guidelines
+
+1. **In-Source Testing Pattern**:
+   - Tests live in the same file as the code they test
+   - Keeps tests close to implementation
+   - Reduces context switching
+   - Tests are automatically excluded from production builds
+
+2. **Test Coverage Areas**:
+   - **Data Processing**: JSONL parsing, token aggregation (`data-loader.ts`)
+   - **Cost Calculations**: Model pricing, token cost computation (`calculate-cost.ts`)
+   - **Path Encoding**: URL encoding/decoding for project paths (`_opencode-loader.ts`)
+   - **Date Handling**: Timezone conversions, date formatting (`_utils.ts`)
+   - **CLI Commands**: Command parsing and execution (`commands/`)
+   - **Live Monitoring**: Real-time dashboard updates (`_live-monitor.ts`)
+
+3. **Mock Data Requirements**:
+   - Use `fs-fixture` for creating temporary test directories
+   - Mock Claude/OpenCode data directories for testing
+   - Use current Claude 4 models (`claude-opus-4-20250514`, `claude-sonnet-4-20250514`) in test data
+   - Test with realistic JSONL data structures
+
+4. **Best Practices**:
+   - Test both happy paths and edge cases
+   - Include backward compatibility tests (legacy dash encoding)
+   - Verify error handling and fallback mechanisms
+   - Test with realistic data structures matching actual Claude/OpenCode output
+   - Ensure tests work with UTC timezone (`TZ=UTC`)
+
+#### Example Test Structure
+
+```typescript
+// Example from src/_opencode-loader.ts
+if (import.meta.vitest != null) {
+    const { describe, it, expect } = import.meta.vitest;
+    
+    describe('Project path encoding/decoding', () => {
+        it('should encode and decode paths with dashes correctly', () => {
+            const originalPath = '/Users/vatsal/my-project';
+            const encoded = encodeProjectPath(originalPath);
+            const decoded = decodeProjectPath(encoded);
+            expect(decoded).toBe(originalPath);
+        });
+        
+        it('should fallback to legacy dash replacement', () => {
+            const legacyEncoded = 'Users-vatsal-my-project';
+            const decoded = decodeProjectPath(legacyEncoded);
+            expect(decoded).toBe('/Users/vatsal/my/project');
+        });
+        
+        it('should handle complex paths with special characters', () => {
+            const originalPath = '/Users/vatsal/my-project (2024) #1';
+            const encoded = encodeProjectPath(originalPath);
+            const decoded = decodeProjectPath(encoded);
+            expect(decoded).toBe(originalPath);
+        });
+    });
+}
+```
+
+#### Test Environment
+
+- **Runtime**: Bun test runner with Vitest compatibility
+- **Globals**: Vitest globals available via `import.meta.vitest`
+- **Fixtures**: `fs-fixture` for file system mocking
+- **Timezone**: Tests run with `TZ=UTC` for consistency
+- **Models**: Tests use current Claude 4 models for LiteLLM compatibility
+- **Dependencies**: All test dependencies are in `devDependencies`
+
+#### Testing New Features
+
+When adding new features:
+
+1. **Write tests first** or alongside implementation
+2. **Test edge cases** including malformed input data
+3. **Verify backward compatibility** with existing data formats
+4. **Test error handling** and graceful degradation
+5. **Include performance tests** for data processing functions
+6. **Mock external dependencies** (file system, network calls)
+
+#### Debugging Tests
+
+```bash
+# Run tests with debug output
+LOG_LEVEL=4 bun test
+
+# Run single test file with verbose output
+bun test --verbose src/_opencode-loader.ts
+
+# Debug specific test patterns
+bun test --grep "encoding"
+```
+
 ### Project Structure
 ```
 occusage/
