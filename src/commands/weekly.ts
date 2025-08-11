@@ -11,7 +11,7 @@ import {
 	createTotalsObject,
 	getTotalTokens,
 } from '../calculate-cost.ts';
-import { formatDateCompact, loadWeeklyUsageData } from '../data-loader.ts';
+import { formatDateCompact, loadUnifiedWeeklyUsageData } from '../data-loader.ts';
 import { detectMismatches, printMismatchReport } from '../debug.ts';
 import { log, logger } from '../logger.ts';
 
@@ -24,7 +24,7 @@ export const weeklyCommand = define({
 			type: 'enum',
 			short: 'w',
 			description: 'Day to start the week on',
-			default: 'sunday' as const,
+			default: 'monday' as const,
 			choices: WEEK_DAYS,
 		},
 	},
@@ -36,7 +36,7 @@ export const weeklyCommand = define({
 			logger.level = 0;
 		}
 
-		const weeklyData = await loadWeeklyUsageData({
+		const weeklyData = await loadUnifiedWeeklyUsageData({
 			since: ctx.values.since,
 			until: ctx.values.until,
 			timezone: ctx.values.timezone,

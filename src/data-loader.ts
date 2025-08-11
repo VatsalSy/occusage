@@ -1646,6 +1646,295 @@ export async function loadSessionBlockData(
 	return sortByDate(dateFiltered, block => block.startTime, options?.order);
 }
 
+/**
+ * Unified daily usage data loader that supports both Claude Code and OpenCode
+ * Uses loadSessionBlockData internally and aggregates into daily summaries
+ */
+export async function loadUnifiedDailyUsageData(
+	options?: LoadOptions,
+): Promise<DailyUsage[]> {
+	// Load session blocks from both sources
+	const blocks = await loadSessionBlockData(options);
+
+	if (blocks.length === 0) {
+		return [];
+	}
+
+	// Group entries by date
+	const dailyMap = new Map<string, {
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+		cacheReadTokens: number;
+		totalCost: number;
+		modelsUsed: Set<string>;
+		modelBreakdowns: Map<string, ModelBreakdown>;
+		project?: string;
+	}>();
+
+	for (const block of blocks) {
+		for (const entry of block.entries) {
+			// Use timezone from options for date formatting
+			const dateKey = formatDate(entry.timestamp, options?.timezone, options?.locale);
+
+			if (!dailyMap.has(dateKey)) {
+				dailyMap.set(dateKey, {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+					modelsUsed: new Set(),
+					modelBreakdowns: new Map(),
+					project: options?.groupByProject === true ? extractProjectFromEntry(entry) : undefined,
+				});
+			}
+
+			const daily = dailyMap.get(dateKey)!;
+			daily.inputTokens += entry.usage.inputTokens;
+			daily.outputTokens += entry.usage.outputTokens;
+			daily.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			daily.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			daily.totalCost += entry.costUSD;
+			daily.modelsUsed.add(entry.model);
+
+			// Track model breakdown
+			if (!daily.modelBreakdowns.has(entry.model)) {
+				daily.modelBreakdowns.set(entry.model, {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+				});
+			}
+			const breakdown = daily.modelBreakdowns.get(entry.model)!;
+			breakdown.inputTokens += entry.usage.inputTokens;
+			breakdown.outputTokens += entry.usage.outputTokens;
+			breakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			breakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			breakdown.totalCost += entry.costUSD;
+		}
+	}
+
+	// Convert to DailyUsage array
+	const result: DailyUsage[] = Array.from(dailyMap.entries()).map(([date, data]) => ({
+		date,
+		inputTokens: data.inputTokens,
+		outputTokens: data.outputTokens,
+		cacheCreationTokens: data.cacheCreationTokens,
+		cacheReadTokens: data.cacheReadTokens,
+		totalCost: data.totalCost,
+		modelsUsed: Array.from(data.modelsUsed).sort(),
+		modelBreakdowns: Object.fromEntries(data.modelBreakdowns),
+		project: data.project,
+	}));
+
+	// Sort by date
+	return result.sort((a, b) => {
+		const order = options?.order ?? 'asc';
+		const comparison = a.date.localeCompare(b.date);
+		return order === 'desc' ? -comparison : comparison;
+	});
+}
+
+/**
+ * Unified monthly usage data loader that supports both Claude Code and OpenCode
+ * Uses loadSessionBlockData internally and aggregates into monthly summaries
+ */
+export async function loadUnifiedMonthlyUsageData(
+	options?: LoadOptions,
+): Promise<MonthlyUsage[]> {
+	// Load session blocks from both sources
+	const blocks = await loadSessionBlockData(options);
+
+	if (blocks.length === 0) {
+		return [];
+	}
+
+	// Group entries by month
+	const monthlyMap = new Map<string, {
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+		cacheReadTokens: number;
+		totalCost: number;
+		modelsUsed: Set<string>;
+		modelBreakdowns: Map<string, ModelBreakdown>;
+	}>();
+
+	for (const block of blocks) {
+		for (const entry of block.entries) {
+			// Format as YYYY-MM for monthly grouping
+			const monthKey = formatDate(entry.timestamp, options?.timezone, options?.locale).substring(0, 7);
+
+			if (!monthlyMap.has(monthKey)) {
+				monthlyMap.set(monthKey, {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+					modelsUsed: new Set(),
+					modelBreakdowns: new Map(),
+				});
+			}
+
+			const monthly = monthlyMap.get(monthKey)!;
+			monthly.inputTokens += entry.usage.inputTokens;
+			monthly.outputTokens += entry.usage.outputTokens;
+			monthly.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			monthly.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			monthly.totalCost += entry.costUSD;
+			monthly.modelsUsed.add(entry.model);
+
+			// Track model breakdown
+			if (!monthly.modelBreakdowns.has(entry.model)) {
+				monthly.modelBreakdowns.set(entry.model, {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+				});
+			}
+			const breakdown = monthly.modelBreakdowns.get(entry.model)!;
+			breakdown.inputTokens += entry.usage.inputTokens;
+			breakdown.outputTokens += entry.usage.outputTokens;
+			breakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			breakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			breakdown.totalCost += entry.costUSD;
+		}
+	}
+
+	// Convert to MonthlyUsage array
+	const result: MonthlyUsage[] = Array.from(monthlyMap.entries()).map(([month, data]) => ({
+		month,
+		inputTokens: data.inputTokens,
+		outputTokens: data.outputTokens,
+		cacheCreationTokens: data.cacheCreationTokens,
+		cacheReadTokens: data.cacheReadTokens,
+		totalCost: data.totalCost,
+		modelsUsed: Array.from(data.modelsUsed).sort(),
+		modelBreakdowns: Object.fromEntries(data.modelBreakdowns),
+	}));
+
+	// Sort by month
+	return result.sort((a, b) => {
+		const order = options?.order ?? 'asc';
+		const comparison = a.month.localeCompare(b.month);
+		return order === 'desc' ? -comparison : comparison;
+	});
+}
+
+/**
+ * Unified weekly usage data loader that supports both Claude Code and OpenCode
+ * Uses loadSessionBlockData internally and aggregates into weekly summaries
+ */
+export async function loadUnifiedWeeklyUsageData(
+	options?: LoadOptions,
+): Promise<WeeklyUsage[]> {
+	// Load session blocks from both sources
+	const blocks = await loadSessionBlockData(options);
+
+	if (blocks.length === 0) {
+		return [];
+	}
+
+	// Group entries by week
+	const weeklyMap = new Map<string, {
+		inputTokens: number;
+		outputTokens: number;
+		cacheCreationTokens: number;
+		cacheReadTokens: number;
+		totalCost: number;
+		modelsUsed: Set<string>;
+		modelBreakdowns: Map<string, ModelBreakdown>;
+	}>();
+
+	for (const block of blocks) {
+		for (const entry of block.entries) {
+			// Format as week start date for weekly grouping
+			const startDay = options?.startOfWeek != null ? getDayNumber(options.startOfWeek) : getDayNumber('monday');
+			const d = new Date(entry.timestamp);
+			const day = d.getDay();
+			const shift = (day - startDay + 7) % 7;
+			d.setDate(d.getDate() - shift);
+			const weekKey = d.toISOString().substring(0, 10);
+
+			if (!weeklyMap.has(weekKey)) {
+				weeklyMap.set(weekKey, {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+					modelsUsed: new Set(),
+					modelBreakdowns: new Map(),
+				});
+			}
+
+			const weekly = weeklyMap.get(weekKey)!;
+			weekly.inputTokens += entry.usage.inputTokens;
+			weekly.outputTokens += entry.usage.outputTokens;
+			weekly.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			weekly.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			weekly.totalCost += entry.costUSD;
+			weekly.modelsUsed.add(entry.model);
+
+			// Track model breakdown
+			if (!weekly.modelBreakdowns.has(entry.model)) {
+				weekly.modelBreakdowns.set(entry.model, {
+					inputTokens: 0,
+					outputTokens: 0,
+					cacheCreationTokens: 0,
+					cacheReadTokens: 0,
+					totalCost: 0,
+				});
+			}
+			const breakdown = weekly.modelBreakdowns.get(entry.model)!;
+			breakdown.inputTokens += entry.usage.inputTokens;
+			breakdown.outputTokens += entry.usage.outputTokens;
+			breakdown.cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+			breakdown.cacheReadTokens += entry.usage.cacheReadInputTokens;
+			breakdown.totalCost += entry.costUSD;
+		}
+	}
+
+	// Convert to WeeklyUsage array
+	const result: WeeklyUsage[] = Array.from(weeklyMap.entries()).map(([week, data]) => ({
+		week,
+		inputTokens: data.inputTokens,
+		outputTokens: data.outputTokens,
+		cacheCreationTokens: data.cacheCreationTokens,
+		cacheReadTokens: data.cacheReadTokens,
+		totalCost: data.totalCost,
+		modelsUsed: Array.from(data.modelsUsed).sort(),
+		modelBreakdowns: Object.fromEntries(data.modelBreakdowns),
+	}));
+
+	// Sort by week
+	return result.sort((a, b) => {
+		const order = options?.order ?? 'asc';
+		const comparison = a.week.localeCompare(b.week);
+		return order === 'desc' ? -comparison : comparison;
+	});
+}
+
+/**
+ * Helper function to extract project name from a LoadedUsageEntry
+ */
+function extractProjectFromEntry(entry: LoadedUsageEntry): string {
+	if (entry.source === 'opencode') {
+		// For OpenCode, we need to extract project from the entry data
+		// This will need to be implemented based on how OpenCode entries store project info
+		return 'opencode-project'; // Placeholder
+	}
+	// For Claude Code, we would extract from the file path, but LoadedUsageEntry doesn't have that
+	// This would need to be enhanced to track project info in LoadedUsageEntry
+	return 'claude-project'; // Placeholder
+}
+
 if (import.meta.vitest != null) {
 	describe('formatDate', () => {
 		it('formats UTC timestamp to local date', () => {

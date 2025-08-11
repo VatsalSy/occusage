@@ -10,7 +10,7 @@ import {
 	createTotalsObject,
 	getTotalTokens,
 } from '../calculate-cost.ts';
-import { formatDateCompact, loadMonthlyUsageData } from '../data-loader.ts';
+import { formatDateCompact, loadUnifiedMonthlyUsageData } from '../data-loader.ts';
 import { detectMismatches, printMismatchReport } from '../debug.ts';
 import { log, logger } from '../logger.ts';
 
@@ -25,7 +25,7 @@ export const monthlyCommand = define({
 			logger.level = 0;
 		}
 
-		const monthlyData = await loadMonthlyUsageData({
+		const monthlyData = await loadUnifiedMonthlyUsageData({
 			since: ctx.values.since,
 			until: ctx.values.until,
 			mode: ctx.values.mode,

@@ -12,7 +12,7 @@ import {
 	createTotalsObject,
 	getTotalTokens,
 } from '../calculate-cost.ts';
-import { formatDateCompact, loadDailyUsageData } from '../data-loader.ts';
+import { formatDateCompact, loadUnifiedDailyUsageData } from '../data-loader.ts';
 import { detectMismatches, printMismatchReport } from '../debug.ts';
 import { log, logger } from '../logger.ts';
 
@@ -41,7 +41,7 @@ export const dailyCommand = define({
 			logger.level = 0;
 		}
 
-		const dailyData = await loadDailyUsageData({
+		const dailyData = await loadUnifiedDailyUsageData({
 			since: ctx.values.since,
 			until: ctx.values.until,
 			mode: ctx.values.mode,

@@ -4,9 +4,9 @@
 
 Based on comprehensive exploration of both Claude Code and OpenCode data structures, here's the streamlined plan for integrating OpenCode usage tracking with the existing Claude Code functionality in `occusage`. This implementation will be completed in a single sprint with focus on core functionality and visual differentiation.
 
-### 📊 Data Structure Analysis
+### 📊 Data Structure Analysis ✅
 
-#### **Claude Code (JSONL)**
+#### **Claude Code (JSONL)** ✅
 - **Location**: `~/.claude/projects/{project-name}/{sessionId}.jsonl`
 - **Format**: JSONL (one JSON object per line)
 - **Structure**: Each line contains a complete message with:
@@ -20,7 +20,7 @@ Based on comprehensive exploration of both Claude Code and OpenCode data structu
   - "Session" command groups by `{project-name}/{sessionId}` (each JSONL file = one "session")
   - "Blocks" command groups by 5-hour time windows across all projects/sessions
 
-#### **OpenCode (Distributed JSON)**
+#### **OpenCode (Distributed JSON)** ✅
 - **Location**: `~/.local/share/opencode/project/{encoded-project-path}/storage/session/`
 - **Format**: Distributed JSON files in hierarchical structure
 - **Structure**:
@@ -44,15 +44,15 @@ Based on comprehensive exploration of both Claude Code and OpenCode data structu
   - `providerID`: Provider (e.g., "anthropic")
   - `time.created`, `time.completed`: Unix timestamps
 
-#### **Key Mapping Insights**
+#### **Key Mapping Insights** ✅
 - **Projects**: Claude Code `{project-name}` ↔ OpenCode decoded `{encoded-project-path}`
 - **Sessions**: Claude Code `{sessionId}.jsonl` ↔ OpenCode individual conversation `{sessionId}` within a project
 - **Current "Session" Command**: Actually groups by project+session combination, not just sessions
 - **Blocks Integration**: OpenCode data needs to be integrated into existing 5-hour time window logic
 
-### 🏗️ Architecture Design
+### 🏗️ Architecture Design ✅
 
-#### **1. Unified Data Model**
+#### **1. Unified Data Model** ✅
 ```typescript
 interface UnifiedUsageEntry {
   source: 'claude' | 'opencode';
@@ -77,47 +77,47 @@ interface UnifiedUsageEntry {
 }
 ```
 
-#### **2. Multi-Source Data Loader Architecture**
-- **Abstract Factory Pattern**: Create loaders for each source
-  - `ClaudeDataLoader`: Existing JSONL parser (refactored)
-  - `OpenCodeDataLoader`: New distributed JSON parser
-  - `UnifiedDataLoader`: Orchestrates both loaders
+#### **2. Multi-Source Data Loader Architecture** ✅
+- **Abstract Factory Pattern**: Create loaders for each source ✅
+  - `ClaudeDataLoader`: Existing JSONL parser (refactored) ✅
+  - `OpenCodeDataLoader`: New distributed JSON parser ✅
+  - `UnifiedDataLoader`: Orchestrates both loaders ✅
 
-#### **3. Session Management Strategy**
-- **Claude Code**: Current "session" = `{project-name}/{sessionId}` (file-based grouping)
-- **OpenCode**: Hierarchical structure with project → session → messages → parts
-- **Simplified Strategy**:
-  - **Daily/Monthly/Weekly Commands**: Simple timestamp-based aggregation across both sources
-  - **Session Command**: Group by project+session combination from both sources
-  - **Blocks Command**: Integrate OpenCode data into existing 5-hour time window logic
-  - **No Cross-Source Matching**: Keep data sources completely separate, only aggregate totals
+#### **3. Session Management Strategy** ✅
+- **Claude Code**: Current "session" = `{project-name}/{sessionId}` (file-based grouping) ✅
+- **OpenCode**: Hierarchical structure with project → session → messages → parts ✅
+- **Simplified Strategy**: ✅
+  - **Daily/Monthly/Weekly Commands**: Simple timestamp-based aggregation across both sources ❌ (NOT IMPLEMENTED)
+  - **Session Command**: Group by project+session combination from both sources ❌ (NOT IMPLEMENTED)  
+  - **Blocks Command**: Integrate OpenCode data into existing 5-hour time window logic ✅
+  - **No Cross-Source Matching**: Keep data sources completely separate, only aggregate totals ✅
 
-#### **4. Blocks Integration Strategy**
+#### **4. Blocks Integration Strategy** ✅
 Based on the current `identifySessionBlocks` implementation, OpenCode integration for blocks is straightforward:
-- **Current Logic**: Groups entries by 5-hour time windows regardless of source
-- **OpenCode Integration**: 
-  - Convert OpenCode part timestamps to `LoadedUsageEntry` format
-  - Feed into existing `identifySessionBlocks` function alongside Claude Code data
-  - Maintain source attribution in the unified data model
-  - Use existing gap detection and active block logic
-- **Benefits**: Leverages proven time-window logic, no architectural changes needed
+- **Current Logic**: Groups entries by 5-hour time windows regardless of source ✅
+- **OpenCode Integration**: ✅
+  - Convert OpenCode part timestamps to `LoadedUsageEntry` format ✅
+  - Feed into existing `identifySessionBlocks` function alongside Claude Code data ✅
+  - Maintain source attribution in the unified data model ✅
+  - Use existing gap detection and active block logic ✅
+- **Benefits**: Leverages proven time-window logic, no architectural changes needed ✅
 
-#### **5. Configuration Updates**
+#### **5. Configuration Updates** ✅ (Partial)
 ```typescript
 // Environment variables
-CLAUDE_CONFIG_DIR     // Existing: Claude data directories (supports multiple paths)
-OPENCODE_DATA_DIR     // New: OpenCode data directories (supports multiple paths)
-                      // Default: ~/.local/share/opencode (auto-detected like Claude)
+CLAUDE_CONFIG_DIR     // Existing: Claude data directories (supports multiple paths) ✅
+OPENCODE_DATA_DIR     // New: OpenCode data directories (supports multiple paths) ✅
+                      // Default: ~/.local/share/opencode (auto-detected like Claude) ✅
 
 // CLI flags
---source claude,opencode  // Filter by data source (default: both)
+--source claude,opencode  // Filter by data source (default: both) ❌ (NOT IMPLEMENTED)
 ```
 
-**OpenCode Directory Detection Pattern** (following Claude Code approach):
-- **Default behavior**: Auto-detect `~/.local/share/opencode` 
-- **Environment override**: `OPENCODE_DATA_DIR` supports comma-separated paths
-- **Graceful fallback**: Skip OpenCode if directory doesn't exist
-- **Multiple locations**: Same multi-path support as `CLAUDE_CONFIG_DIR`
+**OpenCode Directory Detection Pattern** (following Claude Code approach): ✅
+- **Default behavior**: Auto-detect `~/.local/share/opencode` ✅
+- **Environment override**: `OPENCODE_DATA_DIR` supports comma-separated paths ✅
+- **Graceful fallback**: Skip OpenCode if directory doesn't exist ✅
+- **Multiple locations**: Same multi-path support as `CLAUDE_CONFIG_DIR` ✅
 
 ### 📝 Single-Day Implementation Plan
 
@@ -284,3 +284,25 @@ Daily Usage Report - 2025-08-11
 - No breaking changes to existing Claude Code functionality
 
 This streamlined plan delivers the core multi-CLI integration in a single sprint while maintaining all existing functionality and adding clear visual differentiation between data sources.
+
+---
+
+## 📋 REMAINING TODO ITEMS
+
+### 🚨 Critical Issues (Commands Not Working with OpenCode)
+- [ ] **Daily Command**: Currently only shows Claude data, missing OpenCode integration
+- [ ] **Weekly Command**: Currently only shows Claude data, missing OpenCode integration  
+- [ ] **Monthly Command**: Currently only shows Claude data, missing OpenCode integration
+- [ ] **Session Command**: Currently only shows Claude data, missing OpenCode integration
+
+### 🎯 Missing Features
+- [ ] **--source flag**: Add `--source claude,opencode` filtering capability
+- [ ] **Two-row output format**: Separate `[C]` and `[O]` rows with combined totals (as shown in plan)
+- [ ] **JSON output enhancement**: Include source breakdown in JSON format
+- [ ] **Color coding**: Blue for Claude, Green for OpenCode in all commands
+
+### ✅ Working Features
+- ✅ **Blocks Command**: Fully integrated with `[C]` and `[O]` source indicators
+- ✅ **Live Monitoring**: Shows source indicators and includes OpenCode data
+- ✅ **OpenCode Data Loading**: 45 entries loaded successfully with proper filtering
+- ✅ **Error Handling**: Graceful fallback when OpenCode directory missing
