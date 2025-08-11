@@ -400,10 +400,25 @@ export function pushBreakdownRows(
 
 
 /**
- * Format source indicators for display
+ * Format source indicators for display with colors
+ * @param sources - Array of data sources (claude or opencode)
+ * @returns Formatted source string with colored indicators
  */
-export function formatSources(sources: string[]): string {
-	return sources.map(source => `[${source}]`).join(" ");
+export function formatSources(sources: Array<'claude' | 'opencode' | string>): string {
+	if (sources == null || sources.length === 0) {
+		return '-';
+	}
+	const icons = sources.map((s) => {
+		if (s === 'claude') {
+			return pc.blue('[C]');
+		}
+		if (s === 'opencode') {
+			return pc.green('[O]');
+		}
+		// Fallback for any other source
+		return `[${s}]`;
+	});
+	return icons.join(' ');
 }
 
 /**

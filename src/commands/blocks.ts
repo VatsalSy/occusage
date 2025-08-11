@@ -14,7 +14,7 @@ import {
 } from '../_session-blocks.ts';
 import { sharedCommandConfig } from '../_shared-args.ts';
 import { getTotalTokens } from '../_token-utils.ts';
-import { formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, ResponsiveTable } from '../_utils.ts';
+import { formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import { getClaudePaths, loadSessionBlockData } from '../data-loader.ts';
 import { log, logger } from '../logger.ts';
 import { startLiveMonitoring } from './_blocks.live.ts';
@@ -120,26 +120,7 @@ function formatModels(models: string[]): string {
 	return formatModelsDisplayMultiline(models);
 }
 
-/**
- * Formats the data sources for display with icons
- * @param sources - Array of data sources
- * @returns Formatted source string with icons
- */
-function formatSources(sources: Array<'claude' | 'opencode'>): string {
-	if (sources == null || sources.length === 0) {
-		return '-';
-	}
-	const icons = sources.map((s) => {
-		if (s === 'claude') {
-			return pc.blue('[C]');
-		}
-		if (s === 'opencode') {
-			return pc.green('[O]');
-		}
-		return '';
-	});
-	return icons.join(' ');
-}
+
 
 /**
  * Parses token limit argument, supporting 'max' keyword
