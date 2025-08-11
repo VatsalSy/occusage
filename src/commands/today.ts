@@ -121,7 +121,6 @@ export const todayCommand = define({
 			const table = new ResponsiveTable({
 				head: [
 					'Source',
-					'Time',
 					'Models',
 					'Input',
 					'Output',
@@ -136,7 +135,6 @@ export const todayCommand = define({
 				colAligns: [
 					'center',
 					'left',
-					'left',
 					'right',
 					'right',
 					'right',
@@ -147,7 +145,6 @@ export const todayCommand = define({
 				dateFormatter: (dateStr: string) => formatDateCompact(dateStr, ctx.values.timezone, ctx.values.locale),
 				compactHead: [
 					'Source',
-					'Time',
 					'Models',
 					'Input',
 					'Output',
@@ -155,7 +152,6 @@ export const todayCommand = define({
 				],
 				compactColAligns: [
 					'center',
-					'left',
 					'left',
 					'right',
 					'right',
@@ -174,14 +170,13 @@ export const todayCommand = define({
 					// Add project section header
 					if (!isFirstProject) {
 						// Add empty row for visual separation between projects
-						table.push(['', '', '', '', '', '', '', '', '']);
+						table.push(['', '', '', '', '', '', '', '']);
 					}
 
 					// Add project header row
 					table.push([
 						'',
 						pc.cyan(`Project: ${formatProjectName(projectName)}`),
-						'',
 						'',
 						'',
 						'',
@@ -197,7 +192,6 @@ export const todayCommand = define({
 							for (const sourceBreakdown of data.sourceBreakdowns) {
 								table.push([
 									formatSources([sourceBreakdown.source]),
-									'Today',
 									formatModelsDisplayMultiline(data.modelsUsed),
 									formatNumber(sourceBreakdown.inputTokens),
 									formatNumber(sourceBreakdown.outputTokens),
@@ -212,7 +206,6 @@ export const todayCommand = define({
 							if (data.sourceBreakdowns.length > 1) {
 								table.push([
 									pc.bold('TOTAL'),
-									'Today',
 									formatModelsDisplayMultiline(data.modelsUsed),
 									formatNumber(data.inputTokens),
 									formatNumber(data.outputTokens),
@@ -227,7 +220,6 @@ export const todayCommand = define({
 							// Fallback for data without source breakdowns
 							table.push([
 								'',
-								'Today',
 								formatModelsDisplayMultiline(data.modelsUsed),
 								formatNumber(data.inputTokens),
 								formatNumber(data.outputTokens),
@@ -255,7 +247,6 @@ export const todayCommand = define({
 						for (const sourceBreakdown of data.sourceBreakdowns) {
 							table.push([
 								formatSources([sourceBreakdown.source]),
-								'Today',
 								formatModelsDisplayMultiline(data.modelsUsed),
 								formatNumber(sourceBreakdown.inputTokens),
 								formatNumber(sourceBreakdown.outputTokens),
@@ -270,7 +261,6 @@ export const todayCommand = define({
 						if (data.sourceBreakdowns.length > 1) {
 							table.push([
 								pc.bold('TOTAL'),
-								'Today',
 								formatModelsDisplayMultiline(data.modelsUsed),
 								formatNumber(data.inputTokens),
 								formatNumber(data.outputTokens),
@@ -285,7 +275,6 @@ export const todayCommand = define({
 						// Fallback for data without source breakdowns
 						table.push([
 							'',
-							'Today',
 							formatModelsDisplayMultiline(data.modelsUsed),
 							formatNumber(data.inputTokens),
 							formatNumber(data.outputTokens),
@@ -313,13 +302,11 @@ export const todayCommand = define({
 				'',
 				'',
 				'',
-				'',
 			]);
 
 			// Add totals
 			table.push([
 				pc.yellow('Total'),
-				'',
 				'', // Empty for Models column in totals
 				pc.yellow(formatNumber(totals.inputTokens)),
 				pc.yellow(formatNumber(totals.outputTokens)),
