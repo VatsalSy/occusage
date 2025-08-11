@@ -16,9 +16,9 @@ import { formatDateCompact, loadUnifiedDailyUsageData } from '../data-loader.ts'
 import { detectMismatches, printMismatchReport } from '../debug.ts';
 import { log, logger } from '../logger.ts';
 
-export const dailyCommand = define({
-	name: 'daily',
-	description: 'Show usage report grouped by date',
+export const todayCommand = define({
+	name: 'today',
+	description: 'Show usage report for today only',
 	...sharedCommandConfig,
 	args: {
 		...sharedCommandConfig.args,
@@ -41,9 +41,13 @@ export const dailyCommand = define({
 			logger.level = 0;
 		}
 
+		// Get today's date in the user's timezone
+		const today = new Date();
+		const todayString = today.toISOString().split('T')[0].replace(/-/g, ''); // YYYYMMDD format
+
 		const dailyData = await loadUnifiedDailyUsageData({
-			since: ctx.values.since,
-			until: ctx.values.until,
+			since: todayString, // Only today
+			until: todayString, // Only today
 			mode: ctx.values.mode,
 			order: ctx.values.order,
 			offline: ctx.values.offline,
@@ -58,7 +62,7 @@ export const dailyCommand = define({
 				log(JSON.stringify([]));
 			}
 			else {
-				logger.warn('No Claude usage data found.');
+				logger.warn('No Claude usage data found for today.');
 			}
 			process.exit(0);
 		}
@@ -80,7 +84,7 @@ export const dailyCommand = define({
 						totals: createTotalsObject(totals),
 					}
 				: {
-						daily: dailyData.map(data => ({
+						today: dailyData.map(data => ({
 							date: data.date,
 							inputTokens: data.inputTokens,
 							outputTokens: data.outputTokens,
@@ -90,6 +94,7 @@ export const dailyCommand = define({
 							totalCost: data.totalCost,
 							modelsUsed: data.modelsUsed,
 							modelBreakdowns: data.modelBreakdowns,
+							sourceBreakdowns: data.sourceBreakdowns,
 							...(data.project != null && { project: data.project }),
 						})),
 						totals: createTotalsObject(totals),
@@ -110,13 +115,13 @@ export const dailyCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Claude Code Token Usage Report - Daily');
+			logger.box('Claude Code Token Usage Report - Today');
 
 			// Create table with compact mode support
 			const table = new ResponsiveTable({
 				head: [
 					'Source',
-					'Date',
+					'Time',
 					'Models',
 					'Input',
 					'Output',
@@ -142,7 +147,7 @@ export const dailyCommand = define({
 				dateFormatter: (dateStr: string) => formatDateCompact(dateStr, ctx.values.timezone, ctx.values.locale),
 				compactHead: [
 					'Source',
-					'Date',
+					'Time',
 					'Models',
 					'Input',
 					'Output',
@@ -159,7 +164,7 @@ export const dailyCommand = define({
 				compactThreshold: 100,
 			});
 
-			// Add daily data - group by project if instances flag is used
+			// Add today's data - group by project if instances flag is used
 			if (ctx.values.instances && dailyData.some(d => d.project != null)) {
 				// Group data by project for visual separation
 				const projectGroups = groupDataByProject(dailyData);
@@ -192,7 +197,7 @@ export const dailyCommand = define({
 							for (const sourceBreakdown of data.sourceBreakdowns) {
 								table.push([
 									formatSources([sourceBreakdown.source]),
-									data.date,
+									'Today',
 									formatModelsDisplayMultiline(data.modelsUsed),
 									formatNumber(sourceBreakdown.inputTokens),
 									formatNumber(sourceBreakdown.outputTokens),
@@ -207,7 +212,7 @@ export const dailyCommand = define({
 							if (data.sourceBreakdowns.length > 1) {
 								table.push([
 									pc.bold('TOTAL'),
-									data.date,
+									'Today',
 									formatModelsDisplayMultiline(data.modelsUsed),
 									formatNumber(data.inputTokens),
 									formatNumber(data.outputTokens),
@@ -222,7 +227,7 @@ export const dailyCommand = define({
 							// Fallback for data without source breakdowns
 							table.push([
 								'',
-								data.date,
+								'Today',
 								formatModelsDisplayMultiline(data.modelsUsed),
 								formatNumber(data.inputTokens),
 								formatNumber(data.outputTokens),
@@ -250,7 +255,7 @@ export const dailyCommand = define({
 						for (const sourceBreakdown of data.sourceBreakdowns) {
 							table.push([
 								formatSources([sourceBreakdown.source]),
-								data.date,
+								'Today',
 								formatModelsDisplayMultiline(data.modelsUsed),
 								formatNumber(sourceBreakdown.inputTokens),
 								formatNumber(sourceBreakdown.outputTokens),
@@ -265,7 +270,7 @@ export const dailyCommand = define({
 						if (data.sourceBreakdowns.length > 1) {
 							table.push([
 								pc.bold('TOTAL'),
-								data.date,
+								'Today',
 								formatModelsDisplayMultiline(data.modelsUsed),
 								formatNumber(data.inputTokens),
 								formatNumber(data.outputTokens),
@@ -280,7 +285,7 @@ export const dailyCommand = define({
 						// Fallback for data without source breakdowns
 						table.push([
 							'',
-							data.date,
+							'Today',
 							formatModelsDisplayMultiline(data.modelsUsed),
 							formatNumber(data.inputTokens),
 							formatNumber(data.outputTokens),
@@ -308,11 +313,13 @@ export const dailyCommand = define({
 				'',
 				'',
 				'',
+				'',
 			]);
 
 			// Add totals
 			table.push([
 				pc.yellow('Total'),
+				'',
 				'', // Empty for Models column in totals
 				pc.yellow(formatNumber(totals.inputTokens)),
 				pc.yellow(formatNumber(totals.outputTokens)),

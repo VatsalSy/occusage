@@ -804,3 +804,24 @@ if (import.meta.vitest != null) {
 		});
 	});
 }
+
+/**
+ * Formats source indicators for display in tables
+ * @param sources - Array of source names ('claude' or 'opencode')
+ * @returns Formatted string with colored source indicators
+ */
+export function formatSources(sources: ('claude' | 'opencode')[]): string {
+	if (sources.length === 0) {
+		return '';
+	}
+	const icons = sources.map((s) => {
+		if (s === 'claude') {
+			return pc.blue('[C]');
+		}
+		if (s === 'opencode') {
+			return pc.green('[O]');
+		}
+		return '';
+	});
+	return icons.join(' ');
+}

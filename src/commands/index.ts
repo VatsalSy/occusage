@@ -7,6 +7,7 @@ import { mcpCommand } from './mcp.ts';
 import { monthlyCommand } from './monthly.ts';
 import { sessionCommand } from './session.ts';
 import { statuslineCommand } from './statusline.ts';
+import { todayCommand } from './today.ts';
 import { weeklyCommand } from './weekly.ts';
 
 /**
@@ -14,6 +15,7 @@ import { weeklyCommand } from './weekly.ts';
  */
 const subCommands = new Map();
 subCommands.set('daily', dailyCommand);
+subCommands.set('today', todayCommand);
 subCommands.set('monthly', monthlyCommand);
 subCommands.set('weekly', weeklyCommand);
 subCommands.set('session', sessionCommand);

@@ -5,7 +5,7 @@ import pc from 'picocolors';
 import { WEEK_DAYS } from '../_consts.ts';
 import { processWithJq } from '../_jq-processor.ts';
 import { sharedArgs } from '../_shared-args.ts';
-import { formatCurrency, formatModelsDisplayMultiline, formatNumber, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
+import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
 	createTotalsObject,
@@ -114,6 +114,7 @@ export const weeklyCommand = define({
 			// Create table with compact mode support
 			const table = new ResponsiveTable({
 				head: [
+					'Source',
 					'Week',
 					'Models',
 					'Input',
@@ -127,6 +128,7 @@ export const weeklyCommand = define({
 					head: ['cyan'],
 				},
 				colAligns: [
+					'center',
 					'left',
 					'left',
 					'right',
@@ -138,6 +140,7 @@ export const weeklyCommand = define({
 				],
 				dateFormatter: (dateStr: string) => formatDateCompact(dateStr, ctx.values.timezone, ctx.values.locale),
 				compactHead: [
+					'Source',
 					'Week',
 					'Models',
 					'Input',
@@ -145,6 +148,7 @@ export const weeklyCommand = define({
 					'Cost (USD)',
 				],
 				compactColAligns: [
+					'center',
 					'left',
 					'left',
 					'right',
@@ -156,17 +160,51 @@ export const weeklyCommand = define({
 
 			// Add weekly data
 			for (const data of weeklyData) {
-				// Main row
-				table.push([
-					data.week,
-					formatModelsDisplayMultiline(data.modelsUsed),
-					formatNumber(data.inputTokens),
-					formatNumber(data.outputTokens),
-					formatNumber(data.cacheCreationTokens),
-					formatNumber(data.cacheReadTokens),
-					formatNumber(getTotalTokens(data)),
-					formatCurrency(data.totalCost),
-				]);
+				// Show separate rows for each source
+				if (data.sourceBreakdowns?.length > 0) {
+					for (const sourceBreakdown of data.sourceBreakdowns) {
+						table.push([
+							formatSources([sourceBreakdown.source]),
+							data.week,
+							formatModelsDisplayMultiline(data.modelsUsed),
+							formatNumber(sourceBreakdown.inputTokens),
+							formatNumber(sourceBreakdown.outputTokens),
+							formatNumber(sourceBreakdown.cacheCreationTokens),
+							formatNumber(sourceBreakdown.cacheReadTokens),
+							formatNumber(sourceBreakdown.inputTokens + sourceBreakdown.outputTokens + sourceBreakdown.cacheCreationTokens + sourceBreakdown.cacheReadTokens),
+							formatCurrency(sourceBreakdown.totalCost),
+						]);
+					}
+
+					// Add total row if there are multiple sources
+					if (data.sourceBreakdowns.length > 1) {
+						table.push([
+							pc.bold('TOTAL'),
+							data.week,
+							formatModelsDisplayMultiline(data.modelsUsed),
+							formatNumber(data.inputTokens),
+							formatNumber(data.outputTokens),
+							formatNumber(data.cacheCreationTokens),
+							formatNumber(data.cacheReadTokens),
+							formatNumber(getTotalTokens(data)),
+							formatCurrency(data.totalCost),
+						]);
+					}
+				}
+				else {
+					// Fallback for data without source breakdowns
+					table.push([
+						'',
+						data.week,
+						formatModelsDisplayMultiline(data.modelsUsed),
+						formatNumber(data.inputTokens),
+						formatNumber(data.outputTokens),
+						formatNumber(data.cacheCreationTokens),
+						formatNumber(data.cacheReadTokens),
+						formatNumber(getTotalTokens(data)),
+						formatCurrency(data.totalCost),
+					]);
+				}
 
 				// Add model breakdown rows if flag is set
 				if (ctx.values.breakdown) {
@@ -184,10 +222,12 @@ export const weeklyCommand = define({
 				'',
 				'',
 				'',
+				'',
 			]);
 
 			// Add totals
 			table.push([
+				'',
 				pc.yellow('Total'),
 				'', // Empty for Models column in totals
 				pc.yellow(formatNumber(totals.inputTokens)),
