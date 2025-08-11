@@ -158,8 +158,17 @@ export const weeklyCommand = define({
 				compactThreshold: 100,
 			});
 
-			// Add weekly data
+			// Add weekly data with visual separation between weeks
+			let previousWeek = '';
+			let isFirstWeek = true;
+
 			for (const data of weeklyData) {
+				// Add visual separation between different weeks
+				if (data.week !== previousWeek && !isFirstWeek) {
+					// Add separator row between weeks
+					table.push(['', pc.dim('─'.repeat(15)), '', '', '', '', '', '', '']);
+				}
+
 				// Show separate rows for each source
 				if (data.sourceBreakdowns?.length > 0) {
 					for (const sourceBreakdown of data.sourceBreakdowns) {
@@ -210,6 +219,9 @@ export const weeklyCommand = define({
 				if (ctx.values.breakdown) {
 					pushBreakdownRows(table, data.modelBreakdowns);
 				}
+
+				previousWeek = data.week;
+				isFirstWeek = false;
 			}
 
 			// Add empty row for visual separation before totals
@@ -227,8 +239,8 @@ export const weeklyCommand = define({
 
 			// Add totals
 			table.push([
-				'',
 				pc.yellow('Total'),
+				'', // Empty for Week column in totals
 				'', // Empty for Models column in totals
 				pc.yellow(formatNumber(totals.inputTokens)),
 				pc.yellow(formatNumber(totals.outputTokens)),
