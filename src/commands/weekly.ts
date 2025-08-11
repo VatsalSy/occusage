@@ -112,49 +112,88 @@ export const weeklyCommand = define({
 			logger.box('Claude Code Token Usage Report - Weekly');
 
 			// Create table with compact mode support
+			// When breakdown is enabled, remove Source column for cleaner display
 			const table = new ResponsiveTable({
-				head: [
-					'Source',
-					'Week',
-					'Models',
-					'Input',
-					'Output',
-					'Cache Create',
-					'Cache Read',
-					'Total Tokens',
-					'Cost (USD)',
-				],
+				head: ctx.values.breakdown
+					? [
+							'Week',
+							'Models',
+							'Input',
+							'Output',
+							'Cache Create',
+							'Cache Read',
+							'Total Tokens',
+							'Cost (USD)',
+						]
+					: [
+							'Source',
+							'Week',
+							'Models',
+							'Input',
+							'Output',
+							'Cache Create',
+							'Cache Read',
+							'Total Tokens',
+							'Cost (USD)',
+						],
 				style: {
 					head: ['cyan'],
 				},
-				colAligns: [
-					'center',
-					'left',
-					'left',
-					'right',
-					'right',
-					'right',
-					'right',
-					'right',
-					'right',
-				],
+				colAligns: ctx.values.breakdown
+					? [
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+						]
+					: [
+							'center',
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+							'right',
+						],
 				dateFormatter: (dateStr: string) => formatDateCompact(dateStr, ctx.values.timezone, ctx.values.locale),
-				compactHead: [
-					'Source',
-					'Week',
-					'Models',
-					'Input',
-					'Output',
-					'Cost (USD)',
-				],
-				compactColAligns: [
-					'center',
-					'left',
-					'left',
-					'right',
-					'right',
-					'right',
-				],
+				compactHead: ctx.values.breakdown
+					? [
+							'Week',
+							'Models',
+							'Input',
+							'Output',
+							'Cost (USD)',
+						]
+					: [
+							'Source',
+							'Week',
+							'Models',
+							'Input',
+							'Output',
+							'Cost (USD)',
+						],
+				compactColAligns: ctx.values.breakdown
+					? [
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+						]
+					: [
+							'center',
+							'left',
+							'left',
+							'right',
+							'right',
+							'right',
+						],
 				compactThreshold: 100,
 			});
 
@@ -166,29 +205,62 @@ export const weeklyCommand = define({
 				// Add visual separation between different weeks
 				if (data.week !== previousWeek && !isFirstWeek) {
 					// Add separator row between weeks
-					table.push(['', pc.dim('─'.repeat(15)), '', '', '', '', '', '', '']);
+					const separatorCols = ctx.values.breakdown ? 8 : 9;
+					table.push(Array.from({ length: separatorCols }, (_, i) => i === 1 ? pc.dim('─'.repeat(15)) : ''));
 				}
 
-				// Show separate rows for each source
-				if (data.sourceBreakdowns?.length > 0) {
-					for (const sourceBreakdown of data.sourceBreakdowns) {
-						table.push([
-							formatSources([sourceBreakdown.source]),
-							data.week,
-							formatModelsDisplayMultiline(data.modelsUsed),
-							formatNumber(sourceBreakdown.inputTokens),
-							formatNumber(sourceBreakdown.outputTokens),
-							formatNumber(sourceBreakdown.cacheCreationTokens),
-							formatNumber(sourceBreakdown.cacheReadTokens),
-							formatNumber(sourceBreakdown.inputTokens + sourceBreakdown.outputTokens + sourceBreakdown.cacheCreationTokens + sourceBreakdown.cacheReadTokens),
-							formatCurrency(sourceBreakdown.totalCost),
-						]);
-					}
+				if (ctx.values.breakdown) {
+					// In breakdown mode, show one row per week with aggregated totals
+					table.push([
+						data.week,
+						formatModelsDisplayMultiline(data.modelsUsed),
+						formatNumber(data.inputTokens),
+						formatNumber(data.outputTokens),
+						formatNumber(data.cacheCreationTokens),
+						formatNumber(data.cacheReadTokens),
+						formatNumber(getTotalTokens(data)),
+						formatCurrency(data.totalCost),
+					]);
 
-					// Add total row if there are multiple sources
-					if (data.sourceBreakdowns.length > 1) {
+					// Add model breakdown rows
+					pushBreakdownRows(table, data.modelBreakdowns);
+				}
+				else {
+					// Normal mode: show separate rows for each source
+					if (data.sourceBreakdowns?.length > 0) {
+						for (const sourceBreakdown of data.sourceBreakdowns) {
+							table.push([
+								formatSources([sourceBreakdown.source]),
+								data.week,
+								formatModelsDisplayMultiline(data.modelsUsed),
+								formatNumber(sourceBreakdown.inputTokens),
+								formatNumber(sourceBreakdown.outputTokens),
+								formatNumber(sourceBreakdown.cacheCreationTokens),
+								formatNumber(sourceBreakdown.cacheReadTokens),
+								formatNumber(sourceBreakdown.inputTokens + sourceBreakdown.outputTokens + sourceBreakdown.cacheCreationTokens + sourceBreakdown.cacheReadTokens),
+								formatCurrency(sourceBreakdown.totalCost),
+							]);
+						}
+
+						// Add total row if there are multiple sources
+						if (data.sourceBreakdowns.length > 1) {
+							table.push([
+								pc.bold('TOTAL'),
+								data.week,
+								formatModelsDisplayMultiline(data.modelsUsed),
+								formatNumber(data.inputTokens),
+								formatNumber(data.outputTokens),
+								formatNumber(data.cacheCreationTokens),
+								formatNumber(data.cacheReadTokens),
+								formatNumber(getTotalTokens(data)),
+								formatCurrency(data.totalCost),
+							]);
+						}
+					}
+					else {
+						// Fallback for data without source breakdowns
 						table.push([
-							pc.bold('TOTAL'),
+							'',
 							data.week,
 							formatModelsDisplayMultiline(data.modelsUsed),
 							formatNumber(data.inputTokens),
@@ -200,55 +272,41 @@ export const weeklyCommand = define({
 						]);
 					}
 				}
-				else {
-					// Fallback for data without source breakdowns
-					table.push([
-						'',
-						data.week,
-						formatModelsDisplayMultiline(data.modelsUsed),
-						formatNumber(data.inputTokens),
-						formatNumber(data.outputTokens),
-						formatNumber(data.cacheCreationTokens),
-						formatNumber(data.cacheReadTokens),
-						formatNumber(getTotalTokens(data)),
-						formatCurrency(data.totalCost),
-					]);
-				}
-
-				// Add model breakdown rows if flag is set
-				if (ctx.values.breakdown) {
-					pushBreakdownRows(table, data.modelBreakdowns);
-				}
 
 				previousWeek = data.week;
 				isFirstWeek = false;
 			}
 
 			// Add empty row for visual separation before totals
-			table.push([
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-				'',
-			]);
+			const totalsCols = ctx.values.breakdown ? 8 : 9;
+			table.push(Array.from({ length: totalsCols }, () => ''));
 
 			// Add totals
-			table.push([
-				pc.yellow('Total'),
-				'', // Empty for Week column in totals
-				'', // Empty for Models column in totals
-				pc.yellow(formatNumber(totals.inputTokens)),
-				pc.yellow(formatNumber(totals.outputTokens)),
-				pc.yellow(formatNumber(totals.cacheCreationTokens)),
-				pc.yellow(formatNumber(totals.cacheReadTokens)),
-				pc.yellow(formatNumber(getTotalTokens(totals))),
-				pc.yellow(formatCurrency(totals.totalCost)),
-			]);
+			if (ctx.values.breakdown) {
+				table.push([
+					pc.yellow('Total'),
+					'', // Empty for Models column in totals
+					pc.yellow(formatNumber(totals.inputTokens)),
+					pc.yellow(formatNumber(totals.outputTokens)),
+					pc.yellow(formatNumber(totals.cacheCreationTokens)),
+					pc.yellow(formatNumber(totals.cacheReadTokens)),
+					pc.yellow(formatNumber(getTotalTokens(totals))),
+					pc.yellow(formatCurrency(totals.totalCost)),
+				]);
+			}
+			else {
+				table.push([
+					pc.yellow('Total'),
+					'', // Empty for Week column in totals
+					'', // Empty for Models column in totals
+					pc.yellow(formatNumber(totals.inputTokens)),
+					pc.yellow(formatNumber(totals.outputTokens)),
+					pc.yellow(formatNumber(totals.cacheCreationTokens)),
+					pc.yellow(formatNumber(totals.cacheReadTokens)),
+					pc.yellow(formatNumber(getTotalTokens(totals))),
+					pc.yellow(formatCurrency(totals.totalCost)),
+				]);
+			}
 
 			log(table.toString());
 
