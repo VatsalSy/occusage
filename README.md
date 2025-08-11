@@ -1,19 +1,9 @@
 # occusage
 
-<div align="center">
-    <img src="https://cdn.jsdelivr.net/gh/ryoppippi/occusage@main/docs/public/logo.svg" alt="occusage logo" width="256" height="256">
-    <h1>occusage</h1>
-    <p><strong>OpenCode & Claude Code Usage Analysis Tool</strong></p>
-</div>
-
 <p align="center">
     <a href="https://github.com/vatsalaggarwal/occusage"><img src="https://img.shields.io/badge/github-occusage-blue" alt="GitHub" /></a>
     <a href="https://github.com/vatsalaggarwal/occusage/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" /></a>
 </p>
-
-<div align="center">
-    <img src="https://cdn.jsdelivr.net/gh/ryoppippi/occusage@main/docs/public/screenshot.png" alt="occusage screenshot">
-</div>
 
 > Analyze your OpenCode and Claude Code token usage and costs from local JSONL files — incredibly fast and informative!
 
