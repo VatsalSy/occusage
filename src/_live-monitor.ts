@@ -24,6 +24,7 @@ import {
 	usageDataSchema,
 } from './data-loader.ts';
 import { PricingFetcher } from './pricing-fetcher.ts';
+import { logger } from './logger.ts';
 
 /**
  * Configuration for live monitoring
@@ -211,8 +212,9 @@ export class LiveMonitor implements Disposable {
 
 				this.lastOpenCodeLoadTime = now;
 			}
-			catch {
-				// Silently ignore OpenCode loading errors
+			catch (err) {
+				// Capture OpenCode loading errors at debug level to aid diagnostics without surfacing to users
+				logger.debug('OpenCode load error', err);
 			}
 		}
 

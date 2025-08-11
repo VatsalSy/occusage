@@ -15,6 +15,25 @@ import {
 import { logger } from './logger.ts';
 
 /**
+ * Normalize model identifier strings to a comparable canonical form
+ * - lowercases
+ * - strips provider prefixes like "anthropic:", "openrouter:", etc.
+ * - trims whitespace
+ * - prefixes known alias families (sonnet/opus/haiku) with "claude-" for detection
+ */
+function normalizeModelId(modelId?: string): string | null {
+    if (modelId == null) return null;
+    let s = modelId.trim().toLowerCase();
+    if (s === '') return null;
+    s = s.replace(/^(anthropic:|openrouter:|bedrock:|vertex:)/, '');
+    // If starts with family alias, prefix claude-
+    if (/^(sonnet|opus|haiku)(-|$)/.test(s) && !s.startsWith('claude-')) {
+        s = `claude-${s}`;
+    }
+    return s;
+}
+
+/**
  * Encode project path for OpenCode storage using URL encoding
  */
 export function encodeProjectPath(path: string): string {
@@ -39,11 +58,23 @@ export function decodeProjectPath(encodedPath: string): string {
 			// If URL decoding fails, fall through to legacy method
 		}
 	}
-	
-	// Fallback to legacy dash replacement for backward compatibility
-	// OpenCode previously encoded paths like "Users-vatsal-projects-myproject"
-	// Convert back to "/Users/vatsal/projects/myproject"
-	return `/${encodedPath.replace(/-/g, '/')}`;
+
+	// Fallback to legacy decoding with safeguards
+	// Old OpenCode versions encoded paths by replacing path separators with dashes.
+	// This risks corrupting valid dashes (e.g., "my-project"). To reduce risk,
+	// only apply when the string appears to be a legacy absolute path without URL encoding:
+	// - no "%" present (handled above)
+	// - at least 3 dash-separated segments and starts with a known root token
+	// - contains tokens like "Users" or "home" likely representing a POSIX path
+	const legacyCandidates = encodedPath.split('-');
+	const looksLegacy = legacyCandidates.length >= 3
+		&& (/^(users|home|var|etc|opt|private|Volumes)$/i).test(legacyCandidates[0] ?? '');
+	if (looksLegacy) {
+		return `/${encodedPath.replace(/-/g, '/')}`;
+	}
+
+	// Default: treat as already-decoded simple project name segment
+	return encodedPath.startsWith('/') ? encodedPath : `/${encodedPath}`;
 }
 
 /**
@@ -247,9 +278,11 @@ function loadProjectData(projectPath: string): OpenCodeUsageEntry[] {
 			const tokens = aggregateTokensFromParts(parts);
 
 			// Calculate total cost from all parts
-			let totalCost = 0;
+			// Cost is per-part; leave undefined when no parts report cost
+			let totalCost: number | undefined = undefined;
 			for (const part of stepFinishParts) {
 				if (part.cost != null) {
+					if (totalCost == null) totalCost = 0;
 					totalCost += part.cost;
 				}
 			}
@@ -261,8 +294,9 @@ function loadProjectData(projectPath: string): OpenCodeUsageEntry[] {
 			}
 
 			// Skip entries without valid model information (non-Claude models or unknown)
-			const model = message.modelID ?? primaryPart.modelID ?? message.model;
-			if (model == null || model === 'unknown' || !model.includes('claude')) {
+			const modelRaw = message.modelID ?? primaryPart.modelID ?? message.model;
+			const normalizedModel = normalizeModelId(modelRaw);
+			if (normalizedModel == null || normalizedModel === 'unknown' || !normalizedModel.includes('claude')) {
 				continue;
 			}
 
@@ -272,10 +306,10 @@ function loadProjectData(projectPath: string): OpenCodeUsageEntry[] {
 				projectPath: decodedProjectPath,
 				encodedProjectPath: encodedProjectName,
 				timestamp: new Date(timestampMs),
-				model,
+				model: modelRaw ?? 'unknown',
 				provider: message.providerID ?? primaryPart.providerID ?? message.provider,
 				tokens,
-				cost: totalCost > 0 ? totalCost : undefined,
+				cost: totalCost,
 				messageId: message.id,
 				type: message.role,
 			};

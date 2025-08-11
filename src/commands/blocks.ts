@@ -14,7 +14,8 @@ import {
 } from '../_session-blocks.ts';
 import { sharedCommandConfig } from '../_shared-args.ts';
 import { getTotalTokens } from '../_token-utils.ts';
-import { formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
+import { aggregateModelBreakdowns, formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
+import type { ModelName } from '../_types.ts';
 import { getClaudePaths, loadSessionBlockData } from '../data-loader.ts';
 import { log, logger } from '../logger.ts';
 import { startLiveMonitoring } from './_blocks.live.ts';
@@ -558,46 +559,31 @@ export const blocksCommand = define({
 
 						// Add model breakdown rows if breakdown mode is enabled
 						if (ctx.values.breakdown && block.entries.length > 0) {
-							// Create model breakdowns from block entries
-							const modelBreakdowns = new Map<string, {
-								inputTokens: number;
-								outputTokens: number;
-								cacheCreationTokens: number;
-								cacheReadTokens: number;
-								cost: number;
-							}>();
+							// Build and add model breakdown rows using shared aggregator
+							const aggregated = aggregateModelBreakdowns(
+								block.entries.map((e) => ({
+									modelName: e.model as ModelName,
+									inputTokens: e.usage.inputTokens,
+									outputTokens: e.usage.outputTokens,
+									cacheCreationTokens: e.usage.cacheCreationInputTokens,
+									cacheReadTokens: e.usage.cacheReadInputTokens,
+									cost: e.costUSD ?? 0,
+								})),
+							);
 
-							for (const entry of block.entries) {
-								const existing = modelBreakdowns.get(entry.model) ?? {
-									inputTokens: 0,
-									outputTokens: 0,
-									cacheCreationTokens: 0,
-									cacheReadTokens: 0,
-									cost: 0,
-								};
-
-								modelBreakdowns.set(entry.model, {
-									inputTokens: existing.inputTokens + entry.usage.inputTokens,
-									outputTokens: existing.outputTokens + entry.usage.outputTokens,
-									cacheCreationTokens: existing.cacheCreationTokens + entry.usage.cacheCreationInputTokens,
-									cacheReadTokens: existing.cacheReadTokens + entry.usage.cacheReadInputTokens,
-									cost: existing.cost + (entry.costUSD ?? 0),
-								});
-							}
-
-							// Add breakdown rows
-							for (const [modelName, stats] of modelBreakdowns.entries()) {
+							for (const breakdown of aggregated) {
+								const totalTokens = breakdown.inputTokens + breakdown.outputTokens + breakdown.cacheCreationTokens + breakdown.cacheReadTokens;
 								const breakdownRow = [
 									'',
 									'',
 									'',
-									pc.gray(`  └─ ${formatModelName(modelName)}`),
-									pc.gray(formatNumber(stats.inputTokens)),
-									pc.gray(formatNumber(stats.outputTokens)),
-									pc.gray(formatNumber(stats.cacheCreationTokens)),
-									pc.gray(formatNumber(stats.cacheReadTokens)),
-									pc.gray(formatNumber(stats.inputTokens + stats.outputTokens + stats.cacheCreationTokens + stats.cacheReadTokens)),
-									pc.gray(formatCurrency(stats.cost)),
+									pc.gray(`  └─ ${formatModelName(breakdown.modelName)}`),
+									pc.gray(formatNumber(breakdown.inputTokens)),
+									pc.gray(formatNumber(breakdown.outputTokens)),
+									pc.gray(formatNumber(breakdown.cacheCreationTokens)),
+									pc.gray(formatNumber(breakdown.cacheReadTokens)),
+									pc.gray(formatNumber(totalTokens)),
+									pc.gray(formatCurrency(breakdown.cost)),
 								];
 								table.push(breakdownRow);
 							}

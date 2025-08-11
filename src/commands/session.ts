@@ -180,9 +180,11 @@ export const sessionCommand = define({
 				maxSessionLength = Math.max(maxSessionLength, sessionDisplay.length);
 
 				// Determine the primary source for this session
-				const primarySource = data.sourceBreakdowns?.length > 0
-					? data.sourceBreakdowns[0].source
-					: (data.sessionId.includes('ses_') ? 'opencode' : 'claude');
+				// Prefer explicit source breakdowns; otherwise detect OpenCode by stricter pattern
+				const explicitSource = data.sourceBreakdowns?.length > 0 ? data.sourceBreakdowns[0].source : undefined;
+				const openCodePattern = /(^|[-_])ses_[A-Za-z0-9]+/; // Known OpenCode session ID fragment
+				const inferredSource = openCodePattern.test(data.sessionId) ? 'opencode' : 'claude';
+				const primarySource = explicitSource ?? inferredSource;
 
 				if (ctx.values.breakdown) {
 					// In breakdown mode, show one row per session with aggregated totals, including source

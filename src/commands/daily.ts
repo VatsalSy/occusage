@@ -18,12 +18,6 @@ import { formatDateCompact, loadUnifiedDailyUsageData } from '../data-loader.ts'
 import { detectMismatches, printMismatchReport } from '../debug.ts';
 import { log, logger } from '../logger.ts';
 
-/**
- * Aggregates model breakdowns across all sources for a daily entry
- */
-function aggregateDailyModelBreakdowns(data: DailyUsage) {
-    return aggregateModelBreakdowns(data.modelBreakdowns);
-}
 
 export const dailyCommand = define({
 	name: 'daily',
@@ -221,7 +215,7 @@ export const dailyCommand = define({
 					]);
 
 					// Add model breakdown rows with aggregated data
-                    const aggregatedBreakdowns = aggregateDailyModelBreakdowns(data);
+						const aggregatedBreakdowns = aggregateModelBreakdowns(data.modelBreakdowns);
 					// In breakdown mode, we need: ['', '└─ model', data...]
 					for (const breakdown of aggregatedBreakdowns) {
 						const totalTokens = breakdown.inputTokens + breakdown.outputTokens

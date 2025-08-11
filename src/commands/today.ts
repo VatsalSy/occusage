@@ -45,9 +45,11 @@ export const todayCommand = define({
 			logger.level = 0;
 		}
 
-		// Get today's date in the user's timezone
-		const today = new Date();
-		const todayString = today.toISOString().split('T')[0]?.replace(/-/g, '') ?? ''; // YYYYMMDD format
+		// Get today's date in the user's timezone (avoid UTC off-by-one)
+		const tz = ctx.values.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+		const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+		const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+		const todayString = `${parts.year}${parts.month}${parts.day}`;
 
 		const dailyData = await loadUnifiedDailyUsageData({
 			since: todayString, // Only today
@@ -141,7 +143,6 @@ export const todayCommand = define({
 					'right',
 					'right',
 				],
-				dateFormatter: (dateStr: string) => formatDateCompact(dateStr, ctx.values.timezone, ctx.values.locale),
 				compactHead: [
 					'Source',
 					'Models',

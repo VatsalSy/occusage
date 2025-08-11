@@ -88,8 +88,13 @@ export const projectCommand = define({
 
 		// Show debug information if requested
 		if (ctx.values.debug && !useJson) {
-			const mismatchStats = await detectMismatches(undefined);
-			printMismatchReport(mismatchStats, ctx.values.debugSamples);
+			try {
+				const mismatchStats = await detectMismatches(undefined);
+				printMismatchReport(mismatchStats, ctx.values.debugSamples);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				logger.debug(`Debug mismatch detection skipped: ${message}`);
+			}
 		}
 
 		if (useJson) {
@@ -232,11 +237,11 @@ export const projectCommand = define({
 				}
 
 				// Add visual separation before projects with multiple sources (but not before the first project)
-				if (!isFirstProject && !ctx.values.breakdown) {
+						if (!isFirstProject && !ctx.values.breakdown) {
 					const sourceBreakdowns = data.sourceBreakdowns;
 					if (sourceBreakdowns != null && sourceBreakdowns.length > 1) {
 						// Add separator row before projects that have multiple sources
-						const separatorCols = ctx.values.breakdown ? 9 : 10;
+								const separatorCols = table.columnCount;
 						table.push(Array.from({ length: separatorCols }, (_, idx) => (idx === 1 ? pc.dim('───────────────') : '')));
 					}
 				}
@@ -293,8 +298,8 @@ export const projectCommand = define({
 							]);
 
 							// Add separator after TOTAL row (if not the last project)
-							if (i < projectData.length - 1) {
-								const separatorCols = ctx.values.breakdown ? 9 : 10;
+								if (i < projectData.length - 1) {
+									const separatorCols = table.columnCount;
 								table.push(Array.from({ length: separatorCols }, (_, idx) => (idx === 1 ? pc.dim('───────────────') : '')));
 							}
 						}
@@ -320,7 +325,7 @@ export const projectCommand = define({
 			}
 
 			// Add empty row for visual separation before totals
-			const totalsCols = ctx.values.breakdown ? 9 : 10;
+			const totalsCols = table.columnCount;
 			table.push(Array.from({ length: totalsCols }, () => ''));
 
 			// Add totals

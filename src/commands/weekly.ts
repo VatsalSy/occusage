@@ -204,8 +204,8 @@ export const weeklyCommand = define({
 			for (const data of weeklyData) {
 				// Add visual separation between different weeks (only in normal mode, not breakdown)
 				if (data.week !== previousWeek && !isFirstWeek && !ctx.values.breakdown) {
-					// Add separator row between weeks
-					const separatorCols = 9;
+					// Add separator row between weeks; align to current column count
+					const separatorCols = table.isCompactMode() ? 6 : 9;
 					table.push(Array.from({ length: separatorCols }, (_, i) => i === 1 ? pc.dim('─'.repeat(15)) : ''));
 				}
 

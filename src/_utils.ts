@@ -84,6 +84,14 @@ export class ResponsiveTable {
 	}
 
 	/**
+	 * Public getter for the current column count based on active mode
+	 */
+	public get columnCount(): number {
+		const { head } = this.getCurrentTableConfig();
+		return head.length;
+	}
+
+	/**
 	 * Gets indices mapping from full table to compact table
 	 * @returns Array of column indices to keep in compact mode
 	 */
