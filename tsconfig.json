@@ -13,7 +13,8 @@
 		"moduleResolution": "bundler",
 		"resolveJsonModule": true,
 		"types": [
-			"bun"
+			"bun",
+			"vitest/globals"
 		],
 		"allowImportingTsExtensions": true,
 		"allowJs": true,
