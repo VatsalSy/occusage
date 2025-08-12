@@ -5,7 +5,6 @@
       "name": "occusage",
       "devDependencies": {
         "@antfu/utils": "^9.2.0",
-        "@hono/node-server": "^1.18.1",
         "@oxc-project/runtime": "^0.81.0",
         "@praha/byethrow": "^0.6.2",
         "@types/bun": "^1.2.19",
@@ -17,7 +16,6 @@
         "fs-fixture": "^2.8.1",
         "get-stdin": "^9.0.0",
         "gunshi": "^0.26.3",
-        "hono": "^4.9.0",
         "nano-spawn": "^1.0.2",
         "path-type": "^6.0.0",
         "picocolors": "^1.1.1",
@@ -87,8 +85,6 @@
     "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.25.8", "", { "os": "win32", "cpu": "ia32" }, "sha512-hiGgGC6KZ5LZz58OL/+qVVoZiuZlUYlYHNAmczOm7bs2oE1XriPFi5ZHHrS8ACpV5EjySrnoCKmcbQMN+ojnHg=="],
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.8", "", { "os": "win32", "cpu": "x64" }, "sha512-cn3Yr7+OaaZq1c+2pe+8yxC8E144SReCQjN6/2ynubzYjvyqZjTXfQJpAcQpsdJq3My7XADANiYGHoFC69pLQw=="],
-
-    "@hono/node-server": ["@hono/node-server@1.18.1", "", { "peerDependencies": { "hono": "^4" } }, "sha512-O3puG/b7owYYmoQ2XPBf3SxBz6Dhk5VmWFhbaBU8/5wcUaXUPS0goxaI2Zfyg+Cu14ILJHEU7IFRw7miFxuXxg=="],
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.4", "", {}, "sha512-VT2+G1VQs/9oz078bLrYbecdZKs912zQlkelYpuf+SXF+QvZDYJlbx/LSx+meSAwdDFnF8FVXW92AVjjkVmgFw=="],
 
@@ -217,8 +213,6 @@
     "get-stdin": ["get-stdin@9.0.0", "", {}, "sha512-dVKBjfWisLAicarI2Sf+JuBE/DghV4UzNAVe9yhEJuzeREd3JhOTE9cUaJTeSa77fsbQUK3pcOpJfM59+VKZaA=="],
 
     "gunshi": ["gunshi@0.26.3", "", { "dependencies": { "args-tokens": "^0.20.1" } }, "sha512-x/CaxovzDA3KMkrjqow7M1dnsO1CxGMNabBaeGTGdVNtjOMN1G/eK7vjKeJ+zHdFIsWHmo47YQ2DQIESUut2+A=="],
-
-    "hono": ["hono@4.9.0", "", {}, "sha512-JAUc4Sqi3lhby2imRL/67LMcJFKiCu7ZKghM7iwvltVZzxEC5bVJCsAa4NTnSfmWGb+N2eOVtFE586R+K3fejA=="],
 
     "is-fullwidth-code-point": ["is-fullwidth-code-point@3.0.0", "", {}, "sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg=="],
 

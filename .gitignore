@@ -38,3 +38,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 CLAUDE.md
 # Cursor AI agent configuration
 **/.cursor/
+
+# Cursor AI agent configuration
+**/.cursor

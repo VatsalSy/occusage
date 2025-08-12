@@ -19,31 +19,18 @@
 - **Advanced Features**: Project-based reporting, live monitoring, and 5-hour billing blocks
 - **Model Support**: Track usage for Claude 4 Opus and Sonnet models
 
-## 📦 Installation
+## 📦 Installation (Bun-only)
 
-### Quick Start (Recommended)
+This project now requires the Bun runtime.
 
-Run directly without installation using Bun (recommended for speed):
+### Quick Start
+
+Run directly using Bun:
 
 ```bash
-# Using bun (fastest)
 bun run ./src/index.ts
 
-# Or if you have it installed globally
-occusage
-```
-
-### Development Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/vatsalaggarwal/occusage.git
-cd occusage
-
-# Install dependencies
-bun install
-
-# Run the tool
+# Or via package script
 bun run start
 ```
 
@@ -265,8 +252,7 @@ occusage daily --locale de-DE
 ## 🔧 Development
 
 ### Prerequisites
-- [Bun](https://bun.sh) >= 1.0.0
-- Node.js >= 20.19.4 (for compatibility)
+- Bun >= 1.0.0
 
 ### Commands
 ```bash
@@ -275,84 +261,7 @@ bun install
 
 # Run tests
 bun test
-
-# Type checking
-bun typecheck
-
-# Format code
-bun run format
-
-# Build for distribution
-bun run build
-
-# Release new version
-bun run release
 ```
-
-### Testing
-
-This project uses a **comprehensive test suite** with Vitest - **78 tests** across **18 files** with **100% pass rate**.
-
-#### Quick Start
-
-```bash
-# Run all tests (fast - completes in ~1 second)
-bun test
-
-# Run tests with timezone consistency
-TZ=UTC bun test
-
-# Run specific test file
-bun test test/_opencode-loader.test.ts
-
-# Run tests in watch mode during development
-bun test --watch
-
-# Manual CLI integration testing
-./testManual.sh --breakdown
-```
-
-#### Test Suite Overview
-
-- **78 tests** across **18 test files**
-- **262 assertions** with comprehensive edge case coverage
-- **100% pass rate** - reliable and maintainable
-- **Environment-isolated** - no dependencies on actual user data
-- **Fast execution** - complete suite runs in under 1 second
-
-#### Test Categories
-
-1. **Core Data Processing** - Data loading, cost calculations, token utilities
-2. **Integration & External Services** - Pricing API, OpenCode integration
-3. **CLI & Commands** - Command structure validation, shared arguments
-4. **Utilities & Formatting** - Terminal rendering, responsive tables
-5. **Live Monitoring** - Real-time tracking, burn rate calculations
-
-#### Development Workflow
-
-**Before making changes:**
-1. Run `bun test` to ensure clean starting state
-
-**After editing source files:**
-1. Update tests first if APIs changed
-2. Run `bun test` for unit test validation
-3. Run `./testManual.sh --breakdown` for CLI integration testing
-4. Ensure 100% test pass rate before committing
-
-#### Detailed Documentation
-
-For comprehensive testing information, patterns, and guidelines, see:
-
-📖 **[test/README.md](test/README.md)** - Complete test suite documentation
-
-This includes:
-- Detailed test file organization and structure
-- Testing patterns and best practices
-- Mock data creation and fixtures
-- Environment isolation techniques
-- Common test scenarios and examples
-- Future improvement suggestions
-
 ### Project Structure
 ```
 occusage/
@@ -394,15 +303,11 @@ For detailed documentation on all features and commands, see the `/docs` directo
 
 ## 📄 License
 
-[MIT](LICENSE) © Original work by [@ryoppippi](https://github.com/ryoppippi), Fork enhancements by [@vatsalaggarwal](https://github.com/vatsalaggarwal)
+[MIT](LICENSE) © Original work by [@ryoppippi](https://github.com/ryoppippi), Fork enhancements by [@vatsalsy](https://github.com/VatsalSy)
 
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit issues and pull requests.
-
-## 🌟 Star History
-
-If you find this tool useful, please consider starring the repository!
 
 ---
 
