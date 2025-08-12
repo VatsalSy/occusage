@@ -365,6 +365,11 @@ While the original ccusage project excellently serves Claude Code users, the int
 
 This fork maintains full compatibility with the original while adding these essential features for OpenCode users.
 
+### Original Project Recognition
+- **Star the original**: https://github.com/ryoppippi/ccusage ⭐
+- **Documentation**: https://ccusage.com/
+- **Sponsor original author**: https://github.com/sponsors/ryoppippi
+
 ## 📚 Documentation
 
 For detailed documentation on all features and commands, see the `/docs` directory or visit the original documentation at [ccusage.com](https://ccusage.com/).
