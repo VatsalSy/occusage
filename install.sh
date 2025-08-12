@@ -26,46 +26,68 @@ bun link
 info "Making 'occusage' available in your PATH (bun link occusage)..."
 bun link occusage
 
-# 4) Ensure Bun's global bin is in PATH
+# 4) Ensure Bun's global bin is in PATH (check runtime first; only edit profile if needed)
 BUN_INSTALL_DIR=${BUN_INSTALL:-"$HOME/.bun"}
 BUN_BIN="$BUN_INSTALL_DIR/bin"
-if ! command -v occusage >/dev/null 2>&1; then
-  warn "'occusage' not found in PATH. Adding Bun's bin to your shell profile."
 
-  SHELL_NAME="${SHELL:-}"
-  PROFILE_FILE=""
-  case "$SHELL_NAME" in
-    *zsh) PROFILE_FILE="$HOME/.zshrc" ;;
-    *bash) PROFILE_FILE="$HOME/.bashrc" ;;
-    *) PROFILE_FILE="$HOME/.profile" ;;
-  esac
+RUNTIME_HAS_BUN_BIN=false
+case ":$PATH:" in
+  *":$BUN_BIN:"*) RUNTIME_HAS_BUN_BIN=true ;;
+esac
 
-  if [ ! -f "$PROFILE_FILE" ]; then
-    touch "$PROFILE_FILE"
-  fi
-
-  if ! grep -qs "BUN_INSTALL=\"$HOME/.bun\"" "$PROFILE_FILE"; then
-    {
-      echo "export BUN_INSTALL=\"$HOME/.bun\""
-      echo "export PATH=\"$BUN_INSTALL/bin:\$PATH\""
-    } >> "$PROFILE_FILE"
-    info "Appended Bun PATH setup to $PROFILE_FILE"
+if command -v occusage >/dev/null 2>&1; then
+  info "'occusage' already available on PATH. Skipping profile changes."
+else
+  if [ "$RUNTIME_HAS_BUN_BIN" = true ]; then
+    info "Bun bin is already on PATH at runtime. No profile changes needed."
   else
-    if ! grep -qs "\$BUN_INSTALL/bin" "$PROFILE_FILE"; then
-      echo "export PATH=\"$BUN_INSTALL/bin:\$PATH\"" >> "$PROFILE_FILE"
-      info "Appended Bun bin PATH to $PROFILE_FILE"
+    SHELL_NAME="${SHELL:-}"
+    PROFILE_FILE=""
+    case "$SHELL_NAME" in
+      *zsh) PROFILE_FILE="$HOME/.zshrc" ;;
+      *bash) PROFILE_FILE="$HOME/.bashrc" ;;
+      *) PROFILE_FILE="$HOME/.profile" ;;
+    esac
+
+    if [ ! -f "$PROFILE_FILE" ]; then
+      touch "$PROFILE_FILE"
+    fi
+
+    info "Using profile: $PROFILE_FILE"
+    if ! grep -qs "BUN_INSTALL=\"$HOME/.bun\"" "$PROFILE_FILE"; then
+      {
+        echo "export BUN_INSTALL=\"$HOME/.bun\""
+        echo "export PATH=\"\$BUN_INSTALL/bin:\$PATH\""
+      } >> "$PROFILE_FILE"
+      info "Bun PATH entries were not present; added to $PROFILE_FILE"
+    else
+      info "BUN_INSTALL already present in $PROFILE_FILE"
+      if ! grep -qs "\$BUN_INSTALL/bin" "$PROFILE_FILE"; then
+        echo "export PATH=\"\$BUN_INSTALL/bin:\$PATH\"" >> "$PROFILE_FILE"
+        info "Bun bin PATH entry was missing; appended to $PROFILE_FILE"
+      else
+        info "Bun bin PATH entry already present in $PROFILE_FILE"
+      fi
     fi
   fi
 
-  warn "Please reload your shell: 'source $PROFILE_FILE' or open a new terminal."
+  # Also export for current script session to make occusage available immediately
+  export BUN_INSTALL="$HOME/.bun"
+  export PATH="$BUN_INSTALL/bin:$PATH"
+  # Refresh command hash for current shell where possible
+  if command -v rehash >/dev/null 2>&1; then rehash || true; fi
+  if command -v hash >/dev/null 2>&1; then hash -r || true; fi
+
+  if command -v occusage >/dev/null 2>&1; then
+    info "Bun PATH applied for current session."
+  else
+    warn "Please reload your shell to pick up PATH changes (e.g., 'exec $SHELL' or 'source your rc file')."
+  fi
 fi
 
 # 5) Final check and message
 if command -v occusage >/dev/null 2>&1; then
   success "Installation complete! Try: 'occusage --help'"
 else
-  warn "Installation steps completed, but 'occusage' still not found in PATH."
-  echo "You may need to add '$BUN_BIN' to PATH manually and restart your terminal:"
-  echo "  export BUN_INSTALL=\"$HOME/.bun\""
-  echo "  export PATH=\"$BUN_INSTALL/bin:$PATH\""
+  warn "Installation completed. 'occusage' will be available after you reload your shell: 'source $PROFILE_FILE' or open a new terminal."
 fi
