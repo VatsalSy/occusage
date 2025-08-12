@@ -13,6 +13,7 @@ A clear and concise description of the bug.
 ## To Reproduce
 
 Steps to reproduce the behavior:
+
 1. Run command '...'
 2. With options '...'
 3. See error
