@@ -47,6 +47,24 @@ occusage today --breakdown
 
 To update after pulling new changes, re-run `bun link occusage` (or `bun add -g file:.`).
 
+If the `occusage` command is not found, add Bun's global bin to your PATH (Zsh):
+
+```bash
+echo 'export BUN_INSTALL="$HOME/.bun"' >> ~/.zshrc
+echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc && rehash  # or restart your terminal
+
+# Then verify
+which occusage
+occusage --help
+```
+
+### One command local install
+
+```bash
+./install.sh
+```
+
 ### Run without installing
 
 ```bash
