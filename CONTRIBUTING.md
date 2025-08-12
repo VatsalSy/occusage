@@ -13,9 +13,11 @@ Thank you for your interest in contributing to occusage! This document provides 
 
 ### Before Making Changes
 
-1. Run tests: `bun test`
-2. Ensure the current state is clean
-3. Pull latest changes from upstream
+1. Run the TypeScript type-checker: `bun run tsc --noEmit` (ensure types are valid)
+2. Run code formatting checks: Follow project's TypeScript/Bun conventions (see AGENTS.md for style guidelines)
+3. Run tests: `bun test`
+4. Ensure the current state is clean
+5. Pull latest changes from upstream
 
 ### Making Changes
 
