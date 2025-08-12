@@ -59,11 +59,22 @@ which occusage
 occusage --help
 ```
 
-### One command local install
+### Automated Installation
+
+For a quick setup, use the included install script:
 
 ```bash
 ./install.sh
 ```
+
+This script will:
+1. Check for Bun installation (required prerequisite)
+2. Install project dependencies via `bun install`
+3. Link the package globally using `bun link`
+4. Add Bun's global bin directory to your PATH if needed
+5. Verify the installation and provide next steps
+
+**Note**: The script automatically detects your shell (bash/zsh) and updates the appropriate profile file (~/.bashrc, ~/.zshrc, or ~/.profile).
 
 ### Run without installing
 
@@ -345,7 +356,17 @@ For detailed documentation on all features and commands, see the `/docs` directo
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit issues and pull requests.
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on:
+- Development workflow
+- Code style guidelines  
+- Testing requirements
+- Submitting pull requests
+
+### Quick Links
+- [Report a Bug](https://github.com/VatsalSy/occusage/issues/new?template=bug_report.md)
+- [Request a Feature](https://github.com/VatsalSy/occusage/issues/new?template=feature_request.md)
+- [Contributing Guidelines](CONTRIBUTING.md)
+- [Discussions](https://github.com/VatsalSy/occusage/discussions)
 
 ---
 

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Discussions
+    url: https://github.com/VatsalSy/occusage/discussions
+    about: Ask questions and discuss with the community
+  - name: Original ccusage Project
+    url: https://github.com/ryoppippi/ccusage
+    about: For issues related to the original ccusage functionality
