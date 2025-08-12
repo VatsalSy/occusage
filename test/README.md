@@ -7,8 +7,8 @@ This directory contains the comprehensive test suite for **occusage**, a TypeScr
 The test suite uses **Vitest** as the testing framework and follows a traditional file-based structure with dedicated `.test.ts` files for each source module.
 
 ### Test Statistics
-- **78 tests** across **18 test files**
-- **262 assertions** with **100% pass rate**
+- **84 tests** across **18 test files**
+- **273 assertions** with **100% pass rate**
 - **Comprehensive coverage** of core functionality
 
 ## Test Structure
