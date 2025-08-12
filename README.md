@@ -25,9 +25,9 @@ This project now requires the Bun runtime.
 
 > Minimum tested Bun: **>= 1.2.20**. The `packageManager` is pinned to `bun@1.2.20` to ensure consistent tooling across contributors.
 
-### Global CLI (no registry)
+### Global CLI Installation
 
-Install directly from a local clone using Bun:
+**Recommended: Install globally from local clone**
 
 ```bash
 # Clone and install
@@ -35,19 +35,27 @@ git clone https://github.com/VatsalSy/occusage.git
 cd occusage
 bun install
 
-# Link globally (dev-friendly)
-bun link             # registers this package
-bun link occusage    # exposes `occusage` in your PATH
-
-# Or install globally from the local path
+# Install globally
 bun add -g file:.
 
-# Use the CLI
+# Verify installation
 occusage --help
 occusage today --breakdown
 ```
 
-To update after pulling new changes, re-run `bun link occusage` (or `bun add -g file:.`).
+**To update:** Pull latest changes and run `bun add -g file:.` again.
+
+<details>
+<summary>Advanced: Using bun link (for development)</summary>
+
+```bash
+# After cloning and installing dependencies
+bun link             # registers this package
+bun link occusage    # exposes `occusage` in your PATH
+```
+
+To update: re-run `bun link occusage` after pulling changes.
+</details>
 
 If the `occusage` command is not found, add Bun's global bin to your PATH (Zsh):
 
@@ -63,20 +71,21 @@ occusage --help
 
 ### Automated Installation
 
-For a quick setup, use the included install script:
+For a quick setup, use the included [install script](./install.sh):
 
 ```bash
 ./install.sh
 ```
 
-This script will:
+This script will (with your user permissions):
+
 1. Check for Bun installation (required prerequisite)
 2. Install project dependencies via `bun install`
 3. Link the package globally using `bun link`
-4. Add Bun's global bin directory to your PATH if needed
+4. Add Bun's global bin directory to your PATH if needed (modifies shell profile)
 5. Verify the installation and provide next steps
 
-**Note**: The script automatically detects your shell (bash/zsh) and updates the appropriate profile file (~/.bashrc, ~/.zshrc, or ~/.profile).
+**Note**: The script automatically detects your shell (bash/zsh) and updates the appropriate profile file (~/.bashrc, ~/.zshrc, or ~/.profile). Review the script before running if you prefer manual installation.
 
 ### Run without installing
 
@@ -158,8 +167,16 @@ Filter reports by date range:
 # Specific date range
 bun run start daily --since 20250101 --until 20250131
 
-# Last 7 days
+# Last 7 days examples:
+
+# Linux/GNU date
 bun run start daily --since $(date -d '7 days ago' +%Y%m%d)
+
+# macOS/BSD date
+bun run start daily --since $(date -v -7d +%Y%m%d)
+
+# Portable (using Bun/Node)
+bun run start daily --since $(bun -e "const d = new Date(); d.setDate(d.getDate() - 7); console.log(d.toISOString().slice(0,10).replace(/-/g,''))")
 
 # Current month
 bun run start monthly --since $(date +%Y%m01)
@@ -365,6 +382,7 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 - Submitting pull requests
 
 ### Quick Links
+
 - [Report a Bug](https://github.com/VatsalSy/occusage/issues/new?template=bug_report.md)
 - [Request a Feature](https://github.com/VatsalSy/occusage/issues/new?template=feature_request.md)
 - [Contributing Guidelines](CONTRIBUTING.md)
