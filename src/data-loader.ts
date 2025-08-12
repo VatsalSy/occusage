@@ -924,8 +924,9 @@ async function calculateCostGeneric(
 	}
 
 	if (mode === 'auto') {
-		// Auto mode: use costUSD if available, otherwise calculate
-		if (costUSD != null) {
+		// Auto mode: use costUSD if available and non-zero, otherwise calculate
+		// Treat both null and 0 as triggers for calculation
+		if (costUSD != null && costUSD > 0) {
 			return costUSD;
 		}
 		if (model != null) {
@@ -1972,9 +1973,9 @@ export async function loadSessionBlockData(
 					continue;
 				}
 
-				// Calculate cost for OpenCode entries when costUSD is null
+				// Calculate cost for OpenCode entries when costUSD is null or 0
 				let calculatedCost = entry.cost ?? null;
-				if (calculatedCost == null && sharedFetcher != null) {
+				if ((calculatedCost == null || calculatedCost === 0) && sharedFetcher != null) {
 					calculatedCost = await calculateCostForOpenCodeEntry(entry, mode, sharedFetcher);
 				}
 
