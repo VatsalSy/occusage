@@ -1,2 +1,14 @@
 #!/usr/bin/env bun
-import "../src/index.ts";
+import { fileURLToPath } from "url";
+import { join, dirname } from "path";
+
+(async () => {
+  try {
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const resolvedPath = join(__dirname, "..", "src", "index.ts");
+    await import(resolvedPath);
+  } catch (error) {
+    console.error("Failed to bootstrap occusage:", error);
+    process.exit(1);
+  }
+})();

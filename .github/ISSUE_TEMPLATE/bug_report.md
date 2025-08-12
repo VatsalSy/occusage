@@ -36,9 +36,24 @@ What actually happened.
 - CPU Architecture: [arm64/x64]
 - Install Method: [install.sh | bun link | other]
 
-## Screenshots/Output
+## Logs / Commands
 
-If applicable, add terminal output or screenshots.
+Please paste the exact command(s) you ran and the raw terminal output using fenced code blocks:
+
+**Commands** (use `sh` language tag):
+```sh
+# Example command
+occusage today --breakdown
+```
+
+**Output** (use `text` language tag):
+```text
+# Example output
+Error: Failed to load usage data
+  at loadData (/path/to/file.ts:123:45)
+```
+
+Screenshots remain optional for additional visual context.
 
 ## Additional Context
 

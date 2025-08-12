@@ -2,7 +2,7 @@
 	"name": "occusage",
 	"type": "module",
 	"version": "15.9.2",
-	"description": "OpenCode & Claude Code usage analysis tool - Enhanced fork with dual platform support",
+	"description": "Bun-based CLI for OpenCode & Claude Code usage analysis",
 	"author": "Vatsal Sanjay <vatsal.sanjay@comphy-lab.org>",
 	"license": "MIT",
 	"homepage": "https://github.com/VatsalSy/occusage#readme",
@@ -32,6 +32,10 @@
 	"bin": {
 		"occusage": "bin/occusage"
 	},
+	"files": [
+		"bin/occusage",
+		"src/"
+	],
 	"devDependencies": {
 		"@antfu/utils": "^9.2.0",
 		"@oxc-project/runtime": "^0.81.0",
