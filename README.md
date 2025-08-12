@@ -1,8 +1,8 @@
 # occusage
 
 <p align="center">
-    <a href="https://github.com/vatsalaggarwal/occusage"><img src="https://img.shields.io/badge/github-occusage-blue" alt="GitHub" /></a>
-    <a href="https://github.com/vatsalaggarwal/occusage/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" /></a>
+    <a href="https://github.com/VatsalSy/occusage"><img src="https://img.shields.io/badge/github-occusage-blue" alt="GitHub" /></a>
+    <a href="https://github.com/VatsalSy/occusage/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" /></a>
 </p>
 
 > Analyze your OpenCode and Claude Code token usage and costs from local JSONL files — incredibly fast and informative!
@@ -23,15 +23,35 @@
 
 This project now requires the Bun runtime.
 
-### Quick Start
+### Global CLI (no registry)
 
-Run directly using Bun:
+Install directly from a local clone using Bun:
 
 ```bash
-bun run ./src/index.ts
+# Clone and install
+git clone https://github.com/VatsalSy/occusage.git
+cd occusage
+bun install
 
-# Or via package script
-bun run start
+# Link globally (dev-friendly)
+bun link             # registers this package
+bun link occusage    # exposes `occusage` in your PATH
+
+# Or install globally from the local path
+bun add -g file:.
+
+# Use the CLI
+occusage --help
+occusage today --breakdown
+```
+
+To update after pulling new changes, re-run `bun link occusage` (or `bun add -g file:.`).
+
+### Run without installing
+
+```bash
+bun run ./src/index.ts [command]
+bun run start [command]
 ```
 
 ## 📊 Usage Examples

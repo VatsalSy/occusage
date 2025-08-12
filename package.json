@@ -30,6 +30,9 @@
 		"test": "TZ=UTC vitest run",
 		"test:statusline": "cat test/statusline-test.json | bun run start statusline"
 	},
+	"bin": {
+		"occusage": "src/index.ts"
+	},
 	"devDependencies": {
 		"@antfu/utils": "^9.2.0",
 		"@oxc-project/runtime": "^0.81.0",
