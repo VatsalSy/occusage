@@ -30,9 +30,11 @@ What actually happened.
 
 - OS: [e.g., macOS 14.0, Ubuntu 22.04]
 - Bun Version: [run `bun --version`]
-- occusage Version: [run `occusage --version` or provide exact version]
-- Git Commit SHA (if from source): [run `git rev-parse HEAD` if applicable]
+- occusage Version: [run `occusage --version`]
+- occusage Commit (if running from source): [run `git rev-parse --short HEAD`]
 - Shell: [bash/zsh/other]
+- CPU Architecture: [arm64/x64]
+- Install Method: [install.sh | bun link | other]
 
 ## Screenshots/Output
 
