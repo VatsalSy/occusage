@@ -68,7 +68,3 @@ We deeply appreciate the excellent foundation provided by [@ryoppippi](https://g
 - **Star the original**: https://github.com/ryoppippi/ccusage ⭐
 - **Documentation**: https://ccusage.com/
 - **Sponsor original author**: https://github.com/sponsors/ryoppippi
-
----
-
-*This attribution file ensures proper credit is given to all original contributors while clearly documenting the fork's purpose and enhancements.*
