@@ -30,7 +30,7 @@
 		"test:statusline": "cat test/statusline-test.json | bun run start statusline"
 	},
 	"bin": {
-		"occusage": "src/index.ts"
+		"occusage": "bin/occusage"
 	},
 	"devDependencies": {
 		"@antfu/utils": "^9.2.0",
