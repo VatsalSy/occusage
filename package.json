@@ -3,7 +3,7 @@
 	"type": "module",
 	"version": "15.9.2",
 	"description": "OpenCode & Claude Code usage analysis tool - Enhanced fork with dual platform support",
-	"author": "Vatsal Aggarwal <vatsal@vatsalaggarwal.in>",
+	"author": "Vatsal Sanjay <vatsal.sanjay@comphy-lab.org>",
 	"license": "MIT",
 	"funding": "https://github.com/VatsalSy/occusage?sponsor=1",
 	"homepage": "https://github.com/VatsalSy/occusage#readme",
