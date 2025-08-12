@@ -21,10 +21,16 @@ bun install
 
 # 3) Link this package globally and expose 'occusage'
 info "Linking package globally (bun link)..."
-bun link
+if ! bun link; then
+  err "'bun link' failed. Please check the output above and resolve any issues before continuing."
+  exit 1
+fi
 
 info "Making 'occusage' available in your PATH (bun link occusage)..."
-bun link occusage
+if ! bun link occusage; then
+  err "'bun link occusage' failed. Please check the output above and resolve any issues before continuing."
+  exit 1
+fi
 
 # 4) Ensure Bun's global bin is in PATH (check runtime first; only edit profile if needed)
 BUN_INSTALL_DIR=${BUN_INSTALL:-"$HOME/.bun"}
@@ -75,8 +81,11 @@ else
   export BUN_INSTALL="$HOME/.bun"
   export PATH="$BUN_INSTALL/bin:$PATH"
   # Refresh command hash for current shell where possible
-  if command -v rehash >/dev/null 2>&1; then rehash || true; fi
-  if command -v hash >/dev/null 2>&1; then hash -r || true; fi
+  if [ -n "$ZSH_VERSION" ]; then
+    rehash 2>/dev/null || true
+  elif [ -n "$BASH_VERSION" ]; then
+    hash -r 2>/dev/null || true
+  fi
 
   if command -v occusage >/dev/null 2>&1; then
     info "Bun PATH applied for current session."
