@@ -13,9 +13,9 @@ Thank you for your interest in contributing to occusage! This document provides 
 
 ### Before Making Changes
 
-1. Run the TypeScript type-checker: `bun run tsc --noEmit` (ensure types are valid)
-2. Run code formatting checks: Follow project's TypeScript/Bun conventions (see AGENTS.md for style guidelines)
-3. Run tests: `bun test`
+1. Run tests: `bun test` (ensures all tests pass)
+2. Follow project's TypeScript/Bun conventions (see AGENTS.md for style guidelines)
+3. Run manual CLI tests: `./testManual.sh` (optional, for CLI validation)
 4. Ensure the current state is clean
 5. Pull latest changes from upstream
 
