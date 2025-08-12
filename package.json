@@ -5,7 +5,6 @@
 	"description": "OpenCode & Claude Code usage analysis tool - Enhanced fork with dual platform support",
 	"author": "Vatsal Sanjay <vatsal.sanjay@comphy-lab.org>",
 	"license": "MIT",
-	"funding": "https://github.com/VatsalSy/occusage?sponsor=1",
 	"homepage": "https://github.com/VatsalSy/occusage#readme",
 	"repository": {
 		"type": "git",
