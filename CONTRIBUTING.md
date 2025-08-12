@@ -6,23 +6,26 @@ Thank you for your interest in contributing to occusage! This document provides 
 
 1. Fork the repository
 2. Clone your fork: `git clone https://github.com/YOUR-USERNAME/occusage.git`
-3. Install dependencies: `bun install`
+3. Install dependencies: `bun install` (Minimum tested Bun: >= 1.2.20; `packageManager` is pinned to `bun@1.2.20`.)
 4. Create a feature branch: `git checkout -b feature/your-feature-name`
 
 ## Development Workflow
 
 ### Before Making Changes
+
 1. Run tests: `bun test`
 2. Ensure the current state is clean
 3. Pull latest changes from upstream
 
 ### Making Changes
+
 1. Follow the existing code style (see AGENTS.md for guidelines)
 2. Update tests for any API changes
 3. Add tests for new features
 4. Update documentation as needed
 
 ### Testing Your Changes
+
 ```bash
 # Run unit tests
 bun test
@@ -35,6 +38,7 @@ bun test test/your-test.test.ts
 ```
 
 ### Submitting Changes
+
 1. Commit with clear, descriptive messages
 2. Push to your fork
 3. Create a Pull Request with:

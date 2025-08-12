@@ -23,6 +23,8 @@
 
 This project now requires the Bun runtime.
 
+> Minimum tested Bun: **>= 1.2.20**. The `packageManager` is pinned to `bun@1.2.20` to ensure consistent tooling across contributors.
+
 ### Global CLI (no registry)
 
 Install directly from a local clone using Bun:
@@ -301,7 +303,7 @@ occusage daily --locale de-DE
 ## 🔧 Development
 
 ### Prerequisites
-- Bun >= 1.0.0
+- Bun >= 1.2.20 (minimum tested)
 
 ### Commands
 ```bash
