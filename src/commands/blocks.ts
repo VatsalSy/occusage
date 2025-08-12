@@ -481,8 +481,8 @@ export const blocksCommand = define({
 					head: tableHeaders,
 					style: { head: ['cyan'] },
 					colAligns: tableAligns,
-					compactHead: ['Source', 'Block Period', 'Models', 'Total Tokens', 'Cost (USD)'],
-					compactColAligns: ['center', 'left', 'left', 'right', 'right'],
+					compactHead: ["Source", "Block Period", "Models", "Total Tokens", "Cost (USD)"],
+					compactColAligns: ["center", "left", "left", "right", "right"],
 					compactThreshold: BLOCKS_COMPACT_WIDTH_THRESHOLD,
 				});
 
