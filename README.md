@@ -9,7 +9,7 @@
 
 ## 🚀 What's New
 
-**occusage** (OpenCode/Claude Code Usage) is an enhanced fork of the original [ccusage](https://github.com/ryoppippi/ccusage) project by [@ryoppippi](https://github.com/ryoppippi). This fork adds comprehensive support for **OpenCode** - Anthropic's new AI coding assistant that shares the same powerful Claude models and API infrastructure as Claude Code.
+**occusage** (OpenCode/Claude Code Usage) is an enhanced fork of the original [ccusage](https://github.com/ryoppippi/ccusage) project by [@ryoppippi](https://github.com/ryoppippi). This fork adds comprehensive support for **OpenCode** - SST's new AI coding assistant that shares the same powerful Claude models and API infrastructure as Claude Code.
 
 ### Key Enhancements
 
