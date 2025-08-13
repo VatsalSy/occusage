@@ -46,7 +46,7 @@ For the complete history of the original ccusage project, see:
 
 ### The Need for OpenCode Support
 
-With Anthropic's introduction of OpenCode, users needed:
+With SST's introduction of OpenCode, users needed:
 
 1. **Unified Tracking**: Both platforms use the same Claude models and API
 2. **Source Distinction**: Clear separation of usage between OpenCode and Claude Code

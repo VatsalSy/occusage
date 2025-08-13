@@ -36,6 +36,31 @@ We acknowledge and thank all contributors to the original ccusage project:
 - [@AsPulse](https://github.com/AsPulse) - Contributor
 - And [28+ additional contributors](https://github.com/ryoppippi/ccusage/graphs/contributors)
 
+## OpenCode Project
+
+### About OpenCode
+- **Project**: OpenCode - AI coding agent, built for the terminal
+- **Organization**: SST (Serverless Stack)  
+- **Repository**: https://github.com/sst/opencode
+- **Website**: https://opencode.ai
+- **License**: MIT License
+- **Created**: April 30, 2025
+
+### OpenCode Team & Contributors
+- **Lead Developer**: [@thdxr](https://github.com/thdxr) (Dax Raad)
+- **Core Team**: [@adamdotdevin](https://github.com/adamdotdevin), [@jayair](https://github.com/jayair), [@fwang](https://github.com/fwang), [@rekram1-node](https://github.com/rekram1-node)
+- **Major Contributors**: [@timoclsn](https://github.com/timoclsn), [@yordis](https://github.com/yordis), [@yihuikhuu](https://github.com/yihuikhuu), [@ezynda3](https://github.com/ezynda3), [@monotykamary](https://github.com/monotykamary), [@scaryrawr](https://github.com/scaryrawr), [@l0gicgate](https://github.com/l0gicgate)
+- **And 130+ additional contributors**: See [full list](https://github.com/sst/opencode/graphs/contributors)
+
+### Technology Note
+OpenCode uses Claude's AI models via API but is **NOT developed by Anthropic**. It allows users to use Claude Pro and Max subscriptions. It's an independent open-source project created and maintained by the SST (Serverless Stack) team. This is an important distinction as OpenCode is provider-agnostic and can work with multiple AI providers including OpenAI, Google, and local models.
+
+### OpenCode Recognition
+- **Star the project**: https://github.com/sst/opencode ⭐
+- **Website**: https://opencode.ai  
+- **Documentation**: https://opencode.ai/docs
+- **Community**: https://discord.gg/opencode
+
 ## Fork Enhancements
 
 ### What We Added
@@ -47,7 +72,7 @@ We acknowledge and thank all contributors to the original ccusage project:
 - **Unified Data Loading**: Combined data processing for both platforms
 
 ### Why We Forked
-While the original ccusage project excellently serves Claude Code users, the introduction of OpenCode by Anthropic created a need for:
+While the original ccusage project excellently serves Claude Code users, the introduction of OpenCode by the SST team created a need for:
 
 1. **Unified Tracking**: Both OpenCode and Claude Code use the same Claude models and API
 2. **Source Distinction**: Users need to see usage from both platforms separately
