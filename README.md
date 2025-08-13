@@ -370,6 +370,26 @@ This fork maintains full compatibility with the original while adding these esse
 - **Documentation**: https://ccusage.com/
 - **Sponsor original author**: https://github.com/sponsors/ryoppippi
 
+### OpenCode Project Recognition  
+- **Star OpenCode**: https://github.com/sst/opencode ⭐
+- **Website**: https://opencode.ai
+- **Documentation**: https://opencode.ai/docs
+- **Community**: https://discord.gg/opencode
+- **SST Team**: https://sst.dev
+
+## 💝 Support the Projects
+
+This tool builds upon excellent foundations. Consider supporting:
+
+### Primary: Support Original ccusage Author
+- **GitHub Sponsors**: https://github.com/sponsors/ryoppippi
+- **Repository**: https://github.com/ryoppippi/ccusage
+
+### Also: Support OpenCode
+- **Star the project**: https://github.com/sst/opencode ⭐  
+- **Website**: https://opencode.ai
+- **Use and provide feedback**: Help improve the tool through usage
+
 ## 📚 Documentation
 
 For detailed documentation on all features and commands, see the `/docs` directory or visit the original documentation at [ccusage.com](https://ccusage.com/).
