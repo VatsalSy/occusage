@@ -261,23 +261,37 @@ export function calculateBurnRate(block: SessionBlock): BurnRate | null {
 		return null;
 	}
 
-	const firstEntry = firstEntryData.timestamp;
-	const lastEntry = lastEntryData.timestamp;
-	const durationMinutes = (lastEntry.getTime() - firstEntry.getTime()) / (1000 * 60);
+	// For active blocks, use time since block start for accurate burn rate
+	// For completed blocks, use time between first and last entry
+	let durationMinutes: number;
+	
+	if (block.isActive) {
+		// Use elapsed time since block started for active blocks
+		const now = new Date();
+		durationMinutes = (now.getTime() - block.startTime.getTime()) / (1000 * 60);
+	} else {
+		// For completed blocks, use time between entries
+		const firstEntry = firstEntryData.timestamp;
+		const lastEntry = lastEntryData.timestamp;
+		durationMinutes = (lastEntry.getTime() - firstEntry.getTime()) / (1000 * 60);
+	}
 
-	if (durationMinutes <= 0) {
+	// Ensure minimum duration to avoid division issues with burst activity
+	const safeDurationMinutes = Math.max(1, durationMinutes);
+
+	if (safeDurationMinutes <= 0) {
 		return null;
 	}
 
 	const totalTokens = getTotalTokens(block.tokenCounts);
-	const tokensPerMinute = totalTokens / durationMinutes;
+	const tokensPerMinute = totalTokens / safeDurationMinutes;
 
 	// For burn rate indicator (HIGH/MODERATE/NORMAL), use only input and output tokens
 	// to maintain consistent thresholds with pre-cache behavior
 	const nonCacheTokens = (block.tokenCounts.inputTokens ?? 0) + (block.tokenCounts.outputTokens ?? 0);
-	const tokensPerMinuteForIndicator = nonCacheTokens / durationMinutes;
+	const tokensPerMinuteForIndicator = nonCacheTokens / safeDurationMinutes;
 
-	const costPerHour = (block.costUSD / durationMinutes) * 60;
+	const costPerHour = (block.costUSD / safeDurationMinutes) * 60;
 
 	return {
 		tokensPerMinute,
