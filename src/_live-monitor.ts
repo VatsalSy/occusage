@@ -91,13 +91,20 @@ export class LiveMonitor implements Disposable {
 		);
 
 		for (const res of statResults) {
-			if (res.status === 'rejected') {
+			if (res.status === "rejected") {
 				// Skip files that can't be stat'd (permissions, deleted, etc.)
 				const rejection = res.reason as { file?: string; err?: unknown } | unknown;
-				const file = typeof rejection === 'object' && rejection !== null && 'file' in rejection 
-					? (rejection as { file: string }).file 
-					: 'unknown';
-				logger.debug('stat failed; skipping file', { file, err: rejection });
+				
+				// Extract file and error from the rejection
+				const file = typeof rejection === "object" && rejection !== null && "file" in rejection 
+					? (rejection as { file?: string }).file ?? "unknown"
+					: "unknown";
+				
+				const err = typeof rejection === "object" && rejection !== null && "err" in rejection
+					? (rejection as { err?: unknown }).err
+					: rejection;
+				
+				logger.debug("stat failed; skipping file", { file, err });
 				continue;
 			}
 
