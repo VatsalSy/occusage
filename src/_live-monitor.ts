@@ -10,14 +10,13 @@
 
 import type { LoadedUsageEntry, SessionBlock } from './_session-blocks.ts';
 import type { CostMode, SortOrder } from './_types.ts';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { Result } from '@praha/byethrow';
 import { loadOpenCodeData } from './_opencode-loader.ts';
 import { identifySessionBlocks } from './_session-blocks.ts';
 import {
 	calculateCostForEntry,
 	createUniqueHash,
-	getEarliestTimestamp,
 	getUsageLimitResetTime,
 	globUsageFiles,
 	sortFilesByTimestamp,
@@ -76,15 +75,44 @@ export class LiveMonitor implements Disposable {
 			return null;
 		}
 
-		// Check for new or modified files
+		// Check for new or modified files using file modification time
 		const filesToRead: string[] = [];
-		for (const file of allFiles) {
-			const timestamp = await getEarliestTimestamp(file);
-			const lastTimestamp = this.lastFileTimestamps.get(file);
+		// Stage mtimes; commit after successful read
+		const stagedMtimes = new Map<string, number>();
+		const statResults = await Promise.allSettled(
+			allFiles.map(async file => {
+				try {
+					const fileStats = await stat(file);
+					return { file, mtimeMs: fileStats.mtimeMs } as const;
+				} catch (err) {
+					throw { file, err };
+				}
+			}),
+		);
 
-			if (timestamp != null && (lastTimestamp == null || timestamp.getTime() > lastTimestamp)) {
+		for (const res of statResults) {
+			if (res.status === "rejected") {
+				// Skip files that can't be stat'd (permissions, deleted, etc.)
+				const rejection = res.reason as { file?: string; err?: unknown } | unknown;
+				
+				// Extract file and error from the rejection
+				const file = typeof rejection === "object" && rejection !== null && "file" in rejection 
+					? (rejection as { file?: string }).file ?? "unknown"
+					: "unknown";
+				
+				const err = typeof rejection === "object" && rejection !== null && "err" in rejection
+					? (rejection as { err?: unknown }).err
+					: rejection;
+				
+				logger.debug("stat failed; skipping file", { file, err });
+				continue;
+			}
+
+			const { file, mtimeMs: currentMtime } = res.value;
+			const lastMtime = this.lastFileTimestamps.get(file);
+			if (lastMtime == null || currentMtime > lastMtime) {
 				filesToRead.push(file);
-				this.lastFileTimestamps.set(file, timestamp.getTime());
+				stagedMtimes.set(file, currentMtime);
 			}
 		}
 
@@ -93,11 +121,17 @@ export class LiveMonitor implements Disposable {
 			const sortedFiles = await sortFilesByTimestamp(filesToRead);
 
 			for (const file of sortedFiles) {
-				const content = await readFile(file, 'utf-8')
-					.catch(() => {
-						// Skip files that can't be read
-						return '';
-					});
+				const readTry = Result.try({
+					try: async () => await readFile(file, 'utf-8'),
+					catch: (err) => err,
+				});
+
+				const readResult = await readTry();
+				if (Result.isFailure(readResult)) {
+					logger.debug('read failed; skipping file', { file, err: readResult.error });
+					continue;
+				}
+				const content = readResult.value;
 
 				const lines = content
 					.trim()
@@ -105,59 +139,71 @@ export class LiveMonitor implements Disposable {
 					.filter(line => line.length > 0);
 
 				for (const line of lines) {
-					try {
-						const parsed = JSON.parse(line) as unknown;
-						const result = usageDataSchema.safeParse(parsed);
-						if (!result.success) {
-							continue;
-						}
-						const data = result.data;
-
-						// Check for duplicates
-						const uniqueHash = createUniqueHash(data);
-						if (uniqueHash != null && this.processedHashes.has(uniqueHash)) {
-							continue;
-						}
-						if (uniqueHash != null) {
-							this.processedHashes.add(uniqueHash);
-						}
-
-						// Calculate cost if needed
-						const costUSD: number = await (this.config.mode === 'display'
-							? Promise.resolve(data.costUSD ?? 0)
-							: calculateCostForEntry(
-									data,
-									this.config.mode,
-									this.fetcher!,
-								));
-
-						const usageLimitResetTime = getUsageLimitResetTime(data);
-
-						// Skip entries with synthetic model or unknown model
-						const model = data.message.model ?? 'unknown';
-						if (model === '<synthetic>' || model === 'unknown') {
-							continue;
-						}
-
-						// Add entry
-						this.allEntries.push({
-							source: 'claude',
-							timestamp: new Date(data.timestamp),
-							usage: {
-								inputTokens: data.message.usage.input_tokens ?? 0,
-								outputTokens: data.message.usage.output_tokens ?? 0,
-								cacheCreationInputTokens: data.message.usage.cache_creation_input_tokens ?? 0,
-								cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
-							},
-							costUSD,
-							model,
-							version: data.version,
-							usageLimitResetTime: usageLimitResetTime ?? undefined,
-						});
+					const parseTry = Result.try({
+						try: () => JSON.parse(line) as unknown,
+						catch: (err) => err,
+					});
+					
+					const parseResult = parseTry();
+					if (Result.isFailure(parseResult)) {
+						logger.debug('JSON parse failed; skipping line', { file, err: parseResult.error });
+						continue;
 					}
-					catch {
-						// Skip malformed lines
+					
+					const parsed = parseResult.value;
+					const result = usageDataSchema.safeParse(parsed);
+					if (!result.success) {
+						continue;
 					}
+					const data = result.data;
+
+					// Check for duplicates
+					const uniqueHash = createUniqueHash(data);
+					if (uniqueHash != null && this.processedHashes.has(uniqueHash)) {
+						continue;
+					}
+					if (uniqueHash != null) {
+						this.processedHashes.add(uniqueHash);
+					}
+
+					// Calculate cost if needed
+					const costUSD: number = await (this.config.mode === 'display'
+						? Promise.resolve(data.costUSD ?? 0)
+						: calculateCostForEntry(
+								data,
+								this.config.mode,
+								this.fetcher!,
+							));
+
+					const usageLimitResetTime = getUsageLimitResetTime(data);
+
+					// Skip entries with synthetic model or unknown model
+					const model = data.message.model ?? 'unknown';
+					if (model === '<synthetic>' || model === 'unknown') {
+						continue;
+					}
+
+					// Add entry
+					this.allEntries.push({
+						source: 'claude',
+						timestamp: new Date(data.timestamp),
+						usage: {
+							inputTokens: data.message.usage.input_tokens ?? 0,
+							outputTokens: data.message.usage.output_tokens ?? 0,
+							cacheCreationInputTokens: data.message.usage.cache_creation_input_tokens ?? 0,
+							cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
+						},
+						costUSD,
+						model,
+						version: data.version,
+						usageLimitResetTime: usageLimitResetTime ?? undefined,
+					});
+				}
+
+				// Commit staged mtime only after a successful read
+				const stagedMtime = stagedMtimes.get(file);
+				if (stagedMtime != null) {
+					this.lastFileTimestamps.set(file, stagedMtime);
 				}
 			}
 		}
