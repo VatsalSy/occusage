@@ -172,8 +172,9 @@ export class LiveMonitor implements Disposable {
 							usageLimitResetTime: usageLimitResetTime ?? undefined,
 						});
 					}
-					catch {
+					catch (err) {
 						// Skip malformed lines
+						logger.debug('JSON parse failed; skipping line', { file, err });
 					}
 				}
 
