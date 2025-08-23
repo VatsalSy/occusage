@@ -10,14 +10,13 @@
 
 import type { LoadedUsageEntry, SessionBlock } from './_session-blocks.ts';
 import type { CostMode, SortOrder } from './_types.ts';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { Result } from '@praha/byethrow';
 import { loadOpenCodeData } from './_opencode-loader.ts';
 import { identifySessionBlocks } from './_session-blocks.ts';
 import {
 	calculateCostForEntry,
 	createUniqueHash,
-	getEarliestTimestamp,
 	getUsageLimitResetTime,
 	globUsageFiles,
 	sortFilesByTimestamp,
@@ -76,15 +75,21 @@ export class LiveMonitor implements Disposable {
 			return null;
 		}
 
-		// Check for new or modified files
+		// Check for new or modified files using file modification time
 		const filesToRead: string[] = [];
 		for (const file of allFiles) {
-			const timestamp = await getEarliestTimestamp(file);
-			const lastTimestamp = this.lastFileTimestamps.get(file);
+			try {
+				const fileStats = await stat(file);
+				const currentMtime = fileStats.mtimeMs;
+				const lastMtime = this.lastFileTimestamps.get(file);
 
-			if (timestamp != null && (lastTimestamp == null || timestamp.getTime() > lastTimestamp)) {
-				filesToRead.push(file);
-				this.lastFileTimestamps.set(file, timestamp.getTime());
+				if (lastMtime == null || currentMtime > lastMtime) {
+					filesToRead.push(file);
+					this.lastFileTimestamps.set(file, currentMtime);
+				}
+			} catch {
+				// Skip files that can't be stat'd (permissions, deleted, etc.)
+				continue;
 			}
 		}
 
