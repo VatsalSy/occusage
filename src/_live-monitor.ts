@@ -81,15 +81,23 @@ export class LiveMonitor implements Disposable {
 		const stagedMtimes = new Map<string, number>();
 		const statResults = await Promise.allSettled(
 			allFiles.map(async file => {
-				const fileStats = await stat(file);
-				return { file, mtimeMs: fileStats.mtimeMs } as const;
+				try {
+					const fileStats = await stat(file);
+					return { file, mtimeMs: fileStats.mtimeMs } as const;
+				} catch (err) {
+					throw { file, err };
+				}
 			}),
 		);
 
 		for (const res of statResults) {
 			if (res.status === 'rejected') {
 				// Skip files that can't be stat'd (permissions, deleted, etc.)
-				logger.debug('stat failed; skipping file', { err: res.reason });
+				const rejection = res.reason as { file?: string; err?: unknown } | unknown;
+				const file = typeof rejection === 'object' && rejection !== null && 'file' in rejection 
+					? (rejection as { file: string }).file 
+					: 'unknown';
+				logger.debug('stat failed; skipping file', { file, err: rejection });
 				continue;
 			}
 
@@ -106,15 +114,17 @@ export class LiveMonitor implements Disposable {
 			const sortedFiles = await sortFilesByTimestamp(filesToRead);
 
 			for (const file of sortedFiles) {
-				let content: string;
-				try {
-					content = await readFile(file, 'utf-8');
-				}
-				catch (err) {
-					// Skip files that can't be read
-					logger.debug('read failed; skipping file', { file, err });
+				const readTry = Result.try({
+					try: async () => await readFile(file, 'utf-8'),
+					catch: (err) => err,
+				});
+
+				const readResult = await readTry();
+				if (Result.isFailure(readResult)) {
+					logger.debug('read failed; skipping file', { file, err: readResult.error });
 					continue;
 				}
+				const content = readResult.value;
 
 				const lines = content
 					.trim()
@@ -122,60 +132,65 @@ export class LiveMonitor implements Disposable {
 					.filter(line => line.length > 0);
 
 				for (const line of lines) {
-					try {
-						const parsed = JSON.parse(line) as unknown;
-						const result = usageDataSchema.safeParse(parsed);
-						if (!result.success) {
-							continue;
-						}
-						const data = result.data;
-
-						// Check for duplicates
-						const uniqueHash = createUniqueHash(data);
-						if (uniqueHash != null && this.processedHashes.has(uniqueHash)) {
-							continue;
-						}
-						if (uniqueHash != null) {
-							this.processedHashes.add(uniqueHash);
-						}
-
-						// Calculate cost if needed
-						const costUSD: number = await (this.config.mode === 'display'
-							? Promise.resolve(data.costUSD ?? 0)
-							: calculateCostForEntry(
-									data,
-									this.config.mode,
-									this.fetcher!,
-								));
-
-						const usageLimitResetTime = getUsageLimitResetTime(data);
-
-						// Skip entries with synthetic model or unknown model
-						const model = data.message.model ?? 'unknown';
-						if (model === '<synthetic>' || model === 'unknown') {
-							continue;
-						}
-
-						// Add entry
-						this.allEntries.push({
-							source: 'claude',
-							timestamp: new Date(data.timestamp),
-							usage: {
-								inputTokens: data.message.usage.input_tokens ?? 0,
-								outputTokens: data.message.usage.output_tokens ?? 0,
-								cacheCreationInputTokens: data.message.usage.cache_creation_input_tokens ?? 0,
-								cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
-							},
-							costUSD,
-							model,
-							version: data.version,
-							usageLimitResetTime: usageLimitResetTime ?? undefined,
-						});
+					const parseTry = Result.try({
+						try: () => JSON.parse(line) as unknown,
+						catch: (err) => err,
+					});
+					
+					const parseResult = parseTry();
+					if (Result.isFailure(parseResult)) {
+						logger.debug('JSON parse failed; skipping line', { file, err: parseResult.error });
+						continue;
 					}
-					catch (err) {
-						// Skip malformed lines
-						logger.debug('JSON parse failed; skipping line', { file, err });
+					
+					const parsed = parseResult.value;
+					const result = usageDataSchema.safeParse(parsed);
+					if (!result.success) {
+						continue;
 					}
+					const data = result.data;
+
+					// Check for duplicates
+					const uniqueHash = createUniqueHash(data);
+					if (uniqueHash != null && this.processedHashes.has(uniqueHash)) {
+						continue;
+					}
+					if (uniqueHash != null) {
+						this.processedHashes.add(uniqueHash);
+					}
+
+					// Calculate cost if needed
+					const costUSD: number = await (this.config.mode === 'display'
+						? Promise.resolve(data.costUSD ?? 0)
+						: calculateCostForEntry(
+								data,
+								this.config.mode,
+								this.fetcher!,
+							));
+
+					const usageLimitResetTime = getUsageLimitResetTime(data);
+
+					// Skip entries with synthetic model or unknown model
+					const model = data.message.model ?? 'unknown';
+					if (model === '<synthetic>' || model === 'unknown') {
+						continue;
+					}
+
+					// Add entry
+					this.allEntries.push({
+						source: 'claude',
+						timestamp: new Date(data.timestamp),
+						usage: {
+							inputTokens: data.message.usage.input_tokens ?? 0,
+							outputTokens: data.message.usage.output_tokens ?? 0,
+							cacheCreationInputTokens: data.message.usage.cache_creation_input_tokens ?? 0,
+							cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
+						},
+						costUSD,
+						model,
+						version: data.version,
+						usageLimitResetTime: usageLimitResetTime ?? undefined,
+					});
 				}
 
 				// Commit staged mtime only after a successful read
