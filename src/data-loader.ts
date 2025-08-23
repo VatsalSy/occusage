@@ -2338,7 +2338,7 @@ export async function loadUnifiedWeeklyUsageData(
 		for (const entry of block.entries) {
 			// Format as week start date for weekly grouping
 			const startDay = options?.startOfWeek != null ? getDayNumber(options.startOfWeek) : getDayNumber('monday');
-			const d = new Date(entry.timestamp);
+			const d = new Date(entry.timestamp.getTime());
 			const day = d.getDay();
 			const shift = (day - startDay + 7) % 7;
 			d.setDate(d.getDate() - shift);
