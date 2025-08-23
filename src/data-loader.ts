@@ -1648,9 +1648,9 @@ export async function loadMonthlyUsageData(
  */
 function getDateWeek(date: Date, startDay: DayOfWeek): WeeklyDate {
 	const d = new Date(date);
-	const day = d.getDay();
+	const day = d.getUTCDay();
 	const shift = (day - startDay + 7) % 7;
-	d.setDate(d.getDate() - shift);
+	d.setUTCDate(d.getUTCDate() - shift);
 
 	return createWeeklyDate(d.toISOString().substring(0, 10));
 }
@@ -2339,9 +2339,9 @@ export async function loadUnifiedWeeklyUsageData(
 			// Format as week start date for weekly grouping
 			const startDay = options?.startOfWeek != null ? getDayNumber(options.startOfWeek) : getDayNumber('monday');
 			const d = new Date(entry.timestamp.getTime());
-			const day = d.getDay();
+			const day = d.getUTCDay();
 			const shift = (day - startDay + 7) % 7;
-			d.setDate(d.getDate() - shift);
+			d.setUTCDate(d.getUTCDate() - shift);
 			const weekKey = d.toISOString().substring(0, 10);
 
 			if (!weeklyMap.has(weekKey)) {
