@@ -77,19 +77,27 @@ export class LiveMonitor implements Disposable {
 
 		// Check for new or modified files using file modification time
 		const filesToRead: string[] = [];
-		for (const file of allFiles) {
-			try {
+		// Stage mtimes; commit after successful read
+		const stagedMtimes = new Map<string, number>();
+		const statResults = await Promise.allSettled(
+			allFiles.map(async file => {
 				const fileStats = await stat(file);
-				const currentMtime = fileStats.mtimeMs;
-				const lastMtime = this.lastFileTimestamps.get(file);
+				return { file, mtimeMs: fileStats.mtimeMs } as const;
+			}),
+		);
 
-				if (lastMtime == null || currentMtime > lastMtime) {
-					filesToRead.push(file);
-					this.lastFileTimestamps.set(file, currentMtime);
-				}
-			} catch {
+		for (const res of statResults) {
+			if (res.status === 'rejected') {
 				// Skip files that can't be stat'd (permissions, deleted, etc.)
+				logger.debug('stat failed; skipping file', { err: res.reason });
 				continue;
+			}
+
+			const { file, mtimeMs: currentMtime } = res.value;
+			const lastMtime = this.lastFileTimestamps.get(file);
+			if (lastMtime == null || currentMtime > lastMtime) {
+				filesToRead.push(file);
+				stagedMtimes.set(file, currentMtime);
 			}
 		}
 
@@ -98,11 +106,15 @@ export class LiveMonitor implements Disposable {
 			const sortedFiles = await sortFilesByTimestamp(filesToRead);
 
 			for (const file of sortedFiles) {
-				const content = await readFile(file, 'utf-8')
-					.catch(() => {
-						// Skip files that can't be read
-						return '';
-					});
+				let content: string;
+				try {
+					content = await readFile(file, 'utf-8');
+				}
+				catch (err) {
+					// Skip files that can't be read
+					logger.debug('read failed; skipping file', { file, err });
+					continue;
+				}
 
 				const lines = content
 					.trim()
@@ -163,6 +175,12 @@ export class LiveMonitor implements Disposable {
 					catch {
 						// Skip malformed lines
 					}
+				}
+
+				// Commit staged mtime only after a successful read
+				const stagedMtime = stagedMtimes.get(file);
+				if (stagedMtime != null) {
+					this.lastFileTimestamps.set(file, stagedMtime);
 				}
 			}
 		}
