@@ -1100,6 +1100,9 @@ export type DateFilter = {
 type WeekDay = TupleToUnion<typeof WEEK_DAYS>;
 type DayOfWeek = IntRange<0, typeof WEEK_DAYS['length']>; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 
+// Default start of week for consistent weekly grouping across all functions
+const DEFAULT_START_OF_WEEK: WeekDay = 'sunday';
+
 /**
  * Configuration options for loading usage data
  */
@@ -1674,7 +1677,7 @@ function getDayNumber(day: WeekDay): DayOfWeek {
 export async function loadWeeklyUsageData(
 	options?: LoadOptions,
 ): Promise<WeeklyUsage[]> {
-	const startDay = options?.startOfWeek != null ? getDayNumber(options.startOfWeek) : getDayNumber('sunday');
+	const startDay = options?.startOfWeek != null ? getDayNumber(options.startOfWeek) : getDayNumber(DEFAULT_START_OF_WEEK);
 
 	return loadBucketUsageData((data: DailyUsage) => getDateWeek(new Date(data.date), startDay), options)
 		.then(usages => usages.map<WeeklyUsage>(({ bucket, ...rest }) => ({
@@ -2337,7 +2340,7 @@ export async function loadUnifiedWeeklyUsageData(
 	for (const block of blocks) {
 		for (const entry of block.entries) {
 			// Format as week start date for weekly grouping
-			const startDay = options?.startOfWeek != null ? getDayNumber(options.startOfWeek) : getDayNumber('monday');
+			const startDay = options?.startOfWeek != null ? getDayNumber(options.startOfWeek) : getDayNumber(DEFAULT_START_OF_WEEK);
 			const d = new Date(entry.timestamp.getTime());
 			const day = d.getUTCDay();
 			const shift = (day - startDay + 7) % 7;
