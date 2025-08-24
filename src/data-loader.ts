@@ -2322,8 +2322,11 @@ export async function loadUnifiedWeeklyUsageData(
 		return [];
 	}
 
+	// Calculate start day for weekly grouping once
+	const startDay = getDayNumber(options?.startOfWeek ?? DEFAULT_START_OF_WEEK);
+
 	// Group entries by week
-	const weeklyMap = new Map<string, {
+	const weeklyMap = new Map<WeeklyDate, {
 		inputTokens: number;
 		outputTokens: number;
 		cacheCreationTokens: number;
@@ -2405,7 +2408,7 @@ export async function loadUnifiedWeeklyUsageData(
 
 	// Convert to WeeklyUsage array
 	const result: WeeklyUsage[] = Array.from(weeklyMap.entries()).map(([week, data]) => ({
-		week: createWeeklyDate(week),
+		week,
 		inputTokens: data.inputTokens,
 		outputTokens: data.outputTokens,
 		cacheCreationTokens: data.cacheCreationTokens,
