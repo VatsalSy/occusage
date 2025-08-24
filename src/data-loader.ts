@@ -2343,12 +2343,7 @@ export async function loadUnifiedWeeklyUsageData(
 	for (const block of blocks) {
 		for (const entry of block.entries) {
 			// Format as week start date for weekly grouping
-			const startDay = options?.startOfWeek != null ? getDayNumber(options.startOfWeek) : getDayNumber(DEFAULT_START_OF_WEEK);
-			const d = new Date(entry.timestamp.getTime());
-			const day = d.getUTCDay();
-			const shift = (day - startDay + 7) % 7;
-			d.setUTCDate(d.getUTCDate() - shift);
-			const weekKey = d.toISOString().substring(0, 10);
+			const weekKey = getDateWeek(entry.timestamp, startDay);
 
 			if (!weeklyMap.has(weekKey)) {
 				weeklyMap.set(weekKey, {
@@ -2635,4 +2630,11 @@ export async function loadUnifiedProjectData(
 	const sortOrder = options?.order ?? 'desc';
 	return sort(results)[sortOrder === 'asc' ? 'asc' : 'desc'](item => item.lastActivity);
 }
+
+// Test-only surface for white-box verification
+export const __testing__ = {
+	getDateWeek,
+	getDayNumber,
+	DEFAULT_START_OF_WEEK,
+};
 
