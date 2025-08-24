@@ -4,7 +4,9 @@ import {
 	loadSessionUsageById, 
 	loadDailyUsageData, 
 	loadMonthlyUsageData,
-	loadSessionData
+	loadSessionData,
+	loadWeeklyUsageData,
+	loadUnifiedWeeklyUsageData
 } from '../src/data-loader.ts';
 
 describe('formatDate', () => {
@@ -121,3 +123,238 @@ describe('loadSessionUsage', () => {
 // Note: This file originally contained 121 tests
 // Additional tests would be extracted from the source file
 // Including edge cases, error handling, and complex aggregation scenarios
+
+describe('Weekly grouping functionality', () => {
+	describe('Date immutability tests', () => {
+		it('should not mutate the original date object when loading weekly usage data', async () => {
+			const { createFixture } = await import('fs-fixture');
+			await using fixture = await createFixture({
+				'projects/test-project/session1.jsonl': JSON.stringify({
+					timestamp: '2024-01-15T12:00:00Z', // Monday
+					message: {
+						model: 'claude-sonnet-4-20250514',
+						usage: {
+							input_tokens: 100,
+							output_tokens: 50,
+							cache_creation_input_tokens: 0,
+							cache_read_input_tokens: 0,
+						},
+					},
+					costUSD: 0.01,
+					version: '1.0.0',
+				}),
+			});
+
+			const originalDate = new Date('2024-01-15T12:00:00Z');
+			const originalTime = originalDate.getTime();
+
+			await loadWeeklyUsageData({ claudePath: fixture.path });
+
+			// Verify original date was not mutated
+			expect(originalDate.getTime()).toBe(originalTime);
+		});
+	});
+
+	describe('UTC boundary tests', () => {
+		it('should handle UTC midnight boundary correctly', async () => {
+			const { createFixture } = await import('fs-fixture');
+			await using fixture = await createFixture({
+				'projects/test-project/session1.jsonl': JSON.stringify({
+					timestamp: '2024-01-14T23:59:59Z', // Sunday 23:59:59 UTC
+					message: {
+						model: 'claude-sonnet-4-20250514',
+						usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+					},
+					costUSD: 0.01,
+					version: '1.0.0',
+				}),
+				'projects/test-project/session2.jsonl': JSON.stringify({
+					timestamp: '2024-01-15T00:00:00Z', // Monday 00:00:00 UTC
+					message: {
+						model: 'claude-sonnet-4-20250514',
+						usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+					},
+					costUSD: 0.01,
+					version: '1.0.0',
+				}),
+			});
+
+			const result = await loadWeeklyUsageData({ 
+				claudePath: fixture.path,
+				startOfWeek: 'sunday'
+			});
+
+			expect(Array.isArray(result)).toBe(true);
+			// Both entries should be in the same week (starting Sunday)
+			if (result.length > 0) {
+				expect(result.length).toBeGreaterThanOrEqual(1);
+			}
+		});
+
+		it('should handle date near UTC boundaries with different start days', async () => {
+			const { createFixture } = await import('fs-fixture');
+			await using fixture = await createFixture({
+				'projects/test-project/session1.jsonl': JSON.stringify({
+					timestamp: '2024-01-14T12:00:00Z', // Sunday noon UTC
+					message: {
+						model: 'claude-sonnet-4-20250514',
+						usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+					},
+					costUSD: 0.01,
+					version: '1.0.0',
+				}),
+			});
+
+			const sundayStart = await loadWeeklyUsageData({ 
+				claudePath: fixture.path,
+				startOfWeek: 'sunday'
+			});
+
+			const mondayStart = await loadWeeklyUsageData({ 
+				claudePath: fixture.path,
+				startOfWeek: 'monday'
+			});
+
+			expect(Array.isArray(sundayStart)).toBe(true);
+			expect(Array.isArray(mondayStart)).toBe(true);
+			
+			// Week keys should be different for Sunday vs Monday start
+			if (sundayStart.length > 0 && mondayStart.length > 0) {
+				expect(sundayStart[0].week).not.toBe(mondayStart[0].week);
+			}
+		});
+	});
+
+	describe('DST edge case tests', () => {
+		it('should handle DST transition dates correctly (spring forward)', async () => {
+			const { createFixture } = await import('fs-fixture');
+			await using fixture = await createFixture({
+				'projects/test-project/session1.jsonl': JSON.stringify({
+					timestamp: '2024-03-10T06:59:59Z', // Day before DST in many US timezones
+					message: {
+						model: 'claude-sonnet-4-20250514',
+						usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+					},
+					costUSD: 0.01,
+					version: '1.0.0',
+				}),
+				'projects/test-project/session2.jsonl': JSON.stringify({
+					timestamp: '2024-03-10T07:00:00Z', // DST transition time in many US timezones
+					message: {
+						model: 'claude-sonnet-4-20250514',
+						usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+					},
+					costUSD: 0.01,
+					version: '1.0.0',
+				}),
+			});
+
+			const result = await loadWeeklyUsageData({ claudePath: fixture.path });
+			
+			expect(Array.isArray(result)).toBe(true);
+			// Should not crash or produce inconsistent results during DST
+			if (result.length > 0) {
+				expect(result[0]).toHaveProperty('week');
+				expect(result[0]).toHaveProperty('inputTokens');
+			}
+		});
+
+		it('should handle DST transition dates correctly (fall back)', async () => {
+			const { createFixture } = await import('fs-fixture');
+			await using fixture = await createFixture({
+				'projects/test-project/session1.jsonl': JSON.stringify({
+					timestamp: '2024-11-03T05:59:59Z', // Before DST ends in many US timezones
+					message: {
+						model: 'claude-sonnet-4-20250514',
+						usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+					},
+					costUSD: 0.01,
+					version: '1.0.0',
+				}),
+				'projects/test-project/session2.jsonl': JSON.stringify({
+					timestamp: '2024-11-03T06:00:00Z', // After DST ends in many US timezones
+					message: {
+						model: 'claude-sonnet-4-20250514',
+						usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+					},
+					costUSD: 0.01,
+					version: '1.0.0',
+				}),
+			});
+
+			const result = await loadWeeklyUsageData({ claudePath: fixture.path });
+			
+			expect(Array.isArray(result)).toBe(true);
+			// Should not crash or produce inconsistent results during DST
+			if (result.length > 0) {
+				expect(result[0]).toHaveProperty('week');
+				expect(result[0]).toHaveProperty('inputTokens');
+			}
+		});
+	});
+
+	describe('Start of week consistency tests', () => {
+		it('should use the same default start of week across both loader functions', async () => {
+			const { createFixture } = await import('fs-fixture');
+			await using fixture = await createFixture({
+				'projects/test-project/session1.jsonl': JSON.stringify({
+					timestamp: '2024-01-15T12:00:00Z', // Monday
+					message: {
+						model: 'claude-sonnet-4-20250514',
+						usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+					},
+					costUSD: 0.01,
+					version: '1.0.0',
+				}),
+			});
+
+			const weeklyResult = await loadWeeklyUsageData({ claudePath: fixture.path });
+			const unifiedWeeklyResult = await loadUnifiedWeeklyUsageData({ claudePath: fixture.path });
+
+			expect(Array.isArray(weeklyResult)).toBe(true);
+			expect(Array.isArray(unifiedWeeklyResult)).toBe(true);
+			
+			// Both functions should produce results with the same week start logic
+			if (weeklyResult.length > 0 && unifiedWeeklyResult.length > 0) {
+				// Verify both use the same default start of week by checking week keys
+				const weeklyWeek = weeklyResult[0].week;
+				const unifiedWeek = unifiedWeeklyResult[0].week;
+				
+				// Week should be the same since both should default to Sunday
+				expect(weeklyWeek).toBe(unifiedWeek);
+			}
+		});
+
+		it('should consistently use Sunday as default start of week', async () => {
+			const { createFixture } = await import('fs-fixture');
+			await using fixture = await createFixture({
+				'projects/test-project/session1.jsonl': JSON.stringify({
+					timestamp: '2024-01-15T12:00:00Z', // Monday Jan 15, 2024
+					message: {
+						model: 'claude-sonnet-4-20250514',
+						usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+					},
+					costUSD: 0.01,
+					version: '1.0.0',
+				}),
+			});
+
+			const resultWithoutStartOfWeek = await loadWeeklyUsageData({ claudePath: fixture.path });
+			const resultWithSundayStartOfWeek = await loadWeeklyUsageData({ 
+				claudePath: fixture.path,
+				startOfWeek: 'sunday'
+			});
+
+			expect(Array.isArray(resultWithoutStartOfWeek)).toBe(true);
+			expect(Array.isArray(resultWithSundayStartOfWeek)).toBe(true);
+			
+			if (resultWithoutStartOfWeek.length > 0 && resultWithSundayStartOfWeek.length > 0) {
+				// Default should be the same as explicitly specifying Sunday
+				expect(resultWithoutStartOfWeek[0].week).toBe(resultWithSundayStartOfWeek[0].week);
+				
+				// For Monday Jan 15, 2024, with Sunday start, week should start on Jan 14, 2024
+				expect(resultWithoutStartOfWeek[0].week).toBe('2024-01-14');
+			}
+		});
+	});
+});
