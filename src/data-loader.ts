@@ -2325,8 +2325,11 @@ export async function loadUnifiedWeeklyUsageData(
 		return [];
 	}
 
+	// Calculate start day for weekly grouping once
+	const startDay = getDayNumber(options?.startOfWeek ?? DEFAULT_START_OF_WEEK);
+
 	// Group entries by week
-	const weeklyMap = new Map<string, {
+	const weeklyMap = new Map<WeeklyDate, {
 		inputTokens: number;
 		outputTokens: number;
 		cacheCreationTokens: number;
@@ -2340,12 +2343,7 @@ export async function loadUnifiedWeeklyUsageData(
 	for (const block of blocks) {
 		for (const entry of block.entries) {
 			// Format as week start date for weekly grouping
-			const startDay = options?.startOfWeek != null ? getDayNumber(options.startOfWeek) : getDayNumber(DEFAULT_START_OF_WEEK);
-			const d = new Date(entry.timestamp.getTime());
-			const day = d.getUTCDay();
-			const shift = (day - startDay + 7) % 7;
-			d.setUTCDate(d.getUTCDate() - shift);
-			const weekKey = d.toISOString().substring(0, 10);
+			const weekKey = getDateWeek(entry.timestamp, startDay);
 
 			if (!weeklyMap.has(weekKey)) {
 				weeklyMap.set(weekKey, {
@@ -2408,7 +2406,7 @@ export async function loadUnifiedWeeklyUsageData(
 
 	// Convert to WeeklyUsage array
 	const result: WeeklyUsage[] = Array.from(weeklyMap.entries()).map(([week, data]) => ({
-		week: createWeeklyDate(week),
+		week,
 		inputTokens: data.inputTokens,
 		outputTokens: data.outputTokens,
 		cacheCreationTokens: data.cacheCreationTokens,
@@ -2632,4 +2630,11 @@ export async function loadUnifiedProjectData(
 	const sortOrder = options?.order ?? 'desc';
 	return sort(results)[sortOrder === 'asc' ? 'asc' : 'desc'](item => item.lastActivity);
 }
+
+// Test-only surface for white-box verification
+export const __testing__ = {
+	getDateWeek,
+	getDayNumber,
+	DEFAULT_START_OF_WEEK,
+};
 
