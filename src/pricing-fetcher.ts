@@ -14,6 +14,7 @@ import { LITELLM_PRICING_URL } from './_consts.ts';
 import { prefetchClaudePricing } from './_macro.ts' with { type: 'macro' };
 import { modelPricingSchema } from './_types.ts';
 import { logger } from './logger.ts';
+import { globalCacheManager } from './_cache-manager.ts';
 
 /**
  * Fetches and caches model pricing information from LiteLLM
@@ -22,13 +23,16 @@ import { logger } from './logger.ts';
 export class PricingFetcher implements Disposable {
 	private cachedPricing: Map<string, ModelPricing> | null = null;
 	private readonly offline: boolean;
+	private readonly forceRefresh: boolean;
 
 	/**
 	 * Creates a new PricingFetcher instance
 	 * @param offline - Whether to use pre-fetched pricing data instead of fetching from API
+	 * @param forceRefresh - Whether to bypass cache and force refresh pricing data
 	 */
-	constructor(offline = false) {
+	constructor(offline = false, forceRefresh = false) {
 		this.offline = offline;
+		this.forceRefresh = forceRefresh;
 	}
 
 	/**
@@ -81,19 +85,33 @@ export class PricingFetcher implements Disposable {
 
 	/**
 	 * Ensures pricing data is loaded, either from cache or by fetching
-	 * Automatically falls back to offline mode if network fetch fails
+	 * Uses persistent cache with TTL, automatically falls back to offline mode if needed
 	 * @returns Map of model names to pricing information
 	 */
 	private async ensurePricingLoaded(): Result.ResultAsync<Map<string, ModelPricing>, Error> {
+		// Initialize cache manager
+		await globalCacheManager.initialize();
+
 		return Result.pipe(
-			this.cachedPricing != null ? Result.succeed(this.cachedPricing) : Result.fail(new Error('Cached pricing not available')),
+			this.cachedPricing != null ? Result.succeed(this.cachedPricing) : Result.fail(new Error('Memory cache not available')),
 			Result.orElse(async () => {
+				// Check persistent cache first (unless force refresh or offline mode)
+				if (!this.offline && !this.forceRefresh) {
+					const cachedPricing = await globalCacheManager.getPricing();
+					if (cachedPricing) {
+						this.cachedPricing = cachedPricing;
+						logger.debug(`Using cached pricing data for ${cachedPricing.size} models`);
+						return Result.succeed(cachedPricing);
+					}
+				}
+
 				// If we're in offline mode, return pre-fetched data
 				if (this.offline) {
 					return this.loadOfflinePricing();
 				}
 
-				logger.warn('Fetching latest model pricing from LiteLLM...');
+				// Fetch fresh data from API
+				logger.info('Fetching latest model pricing from LiteLLM...');
 				return Result.pipe(
 					Result.try({
 						try: fetch(LITELLM_PRICING_URL),
@@ -122,9 +140,12 @@ export class PricingFetcher implements Disposable {
 						}
 						return pricing;
 					}),
-					Result.inspect((pricing) => {
+					Result.andThen(async (pricing) => {
 						this.cachedPricing = pricing;
-						logger.info(`Loaded pricing for ${pricing.size} models`);
+						// Store in persistent cache
+						await globalCacheManager.setPricing(pricing);
+						logger.info(`Loaded and cached pricing for ${pricing.size} models`);
+						return Result.succeed(pricing);
 					}),
 					Result.orElse(async error => this.handleFallbackToCachedPricing(error)),
 				);

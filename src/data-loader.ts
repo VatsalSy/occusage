@@ -1112,6 +1112,8 @@ export type LoadOptions = {
 	mode?: CostMode; // Cost calculation mode
 	order?: SortOrder; // Sort order for dates
 	offline?: boolean; // Use offline mode for pricing
+	forceRefreshPricing?: boolean; // Force refresh pricing data from API
+	noCache?: boolean; // Disable all caching for this run
 	sessionDurationHours?: number; // Session block duration in hours
 	groupByProject?: boolean; // Group data by project instead of aggregating
 	project?: string; // Filter to specific project name
@@ -1156,7 +1158,7 @@ export async function loadDailyUsageData(
 	const mode = options?.mode ?? 'auto';
 
 	// Use PricingFetcher with using statement for automatic cleanup
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing);
 
 	// Track processed message+request combinations for deduplication
 	const processedHashes = new Set<string>();
@@ -1323,7 +1325,7 @@ export async function loadSessionData(
 	const mode = options?.mode ?? 'auto';
 
 	// Use PricingFetcher with using statement for automatic cleanup
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing);
 
 	// Track processed message+request combinations for deduplication
 	const processedHashes = new Set<string>();
@@ -1867,7 +1869,7 @@ export async function loadSessionBlockData(
 
 	// Create a single PricingFetcher instance for both sources to avoid duplicate fetches
 	const mode = options?.mode ?? 'auto';
-	using sharedFetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	using sharedFetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing);
 
 	// Load Claude data if included
 	if (sources.includes('claude')) {
