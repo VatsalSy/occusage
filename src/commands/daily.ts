@@ -44,6 +44,8 @@ export const dailyCommand = define({
 			mode: ctx.values.mode,
 			order: ctx.values.order,
 			offline: ctx.values.offline,
+			forceRefreshPricing: ctx.values.forceRefreshPricing,
+			noCache: ctx.values.noCache,
 			project: ctx.values.project,
 			timezone: ctx.values.timezone,
 			locale: ctx.values.locale,

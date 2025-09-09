@@ -27,6 +27,8 @@ export const todayCommand = define({
 		order: sharedArgs.order,
 		breakdown: sharedArgs.breakdown,
 		offline: sharedArgs.offline,
+		forceRefreshPricing: sharedArgs.forceRefreshPricing,
+		noCache: sharedArgs.noCache,
 		color: sharedArgs.color,
 		noColor: sharedArgs.noColor,
 		timezone: sharedArgs.timezone,
@@ -57,6 +59,8 @@ export const todayCommand = define({
 			mode: ctx.values.mode,
 			order: ctx.values.order,
 			offline: ctx.values.offline,
+			forceRefreshPricing: ctx.values.forceRefreshPricing,
+			noCache: ctx.values.noCache,
 			groupByProject: false,
 			project: ctx.values.project,
 			timezone: tz, // Use the calculated timezone, not ctx.values.timezone
