@@ -1158,7 +1158,7 @@ export async function loadDailyUsageData(
 	const mode = options?.mode ?? 'auto';
 
 	// Use PricingFetcher with using statement for automatic cleanup
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing);
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing, options?.noCache);
 
 	// Track processed message+request combinations for deduplication
 	const processedHashes = new Set<string>();
@@ -1325,7 +1325,7 @@ export async function loadSessionData(
 	const mode = options?.mode ?? 'auto';
 
 	// Use PricingFetcher with using statement for automatic cleanup
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing);
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing, options?.noCache);
 
 	// Track processed message+request combinations for deduplication
 	const processedHashes = new Set<string>();
@@ -1495,7 +1495,7 @@ export async function loadUnifiedSessionData(
 
 	// Initialize pricing fetcher for cost calculation
 	const mode = options?.mode ?? 'auto';
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing, options?.noCache);
 
 	// Filter by date range if specified
 	const dateFiltered = filterByDateRange(
@@ -1719,7 +1719,7 @@ export async function loadSessionUsageById(
 	const lines = content.trim().split('\n').filter(line => line.length > 0);
 
 	const mode = options?.mode ?? 'auto';
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing, options?.noCache);
 
 	const entries: UsageData[] = [];
 	let totalCost = 0;
@@ -1869,7 +1869,7 @@ export async function loadSessionBlockData(
 
 	// Create a single PricingFetcher instance for both sources to avoid duplicate fetches
 	const mode = options?.mode ?? 'auto';
-	using sharedFetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing);
+	using sharedFetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing, options?.noCache);
 
 	// Load Claude data if included
 	if (sources.includes('claude')) {
@@ -2070,7 +2070,7 @@ export async function loadUnifiedDailyUsageData(
 
 	// Initialize pricing fetcher for cost calculation
 	const mode = options?.mode ?? 'auto';
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing, options?.noCache);
 
 	// Group entries by date
 	const dailyMap = new Map<string, {
@@ -2499,7 +2499,7 @@ export async function loadUnifiedProjectData(
 
 	// Initialize pricing fetcher for cost calculation
 	const mode = options?.mode ?? 'auto';
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline, options?.forceRefreshPricing, options?.noCache);
 
 	// Filter by date range if specified
 	const dateFiltered = filterByDateRange(

@@ -9,6 +9,7 @@
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import process from 'node:process';
 import { Result } from '@praha/byethrow';
 import { createFixture } from 'fs-fixture';
 import { glob } from 'tinyglobby';
@@ -69,10 +70,15 @@ type MismatchStats = {
  * Analyzes usage data to detect pricing mismatches between stored and calculated costs
  * Compares pre-calculated costUSD values with costs calculated from token usage
  * @param claudePath - Optional path to Claude data directory
+ * @param opts - Configuration options for debug behavior
+ * @param opts.offline - Whether to use pre-fetched pricing data instead of fetching from API
+ * @param opts.forceRefreshPricing - Whether to bypass cache and force refresh pricing data
+ * @param opts.noCache - Whether to disable all caching for this instance
  * @returns Statistics about pricing mismatches found
  */
 export async function detectMismatches(
 	claudePath?: string,
+	opts: { offline?: boolean; forceRefreshPricing?: boolean; noCache?: boolean } = {},
 ): Promise<MismatchStats> {
 	let claudeDir: string;
 	if (claudePath != null && claudePath !== '') {
@@ -90,8 +96,13 @@ export async function detectMismatches(
 		absolute: true,
 	});
 
+	// Read configuration from environment variables with fallbacks to options
+	const offline = opts.offline ?? (process.env.OCCUSAGE_OFFLINE === 'true');
+	const forceRefresh = opts.forceRefreshPricing ?? (process.env.OCCUSAGE_DEBUG_FORCE_REFRESH === 'true');
+	const noCache = opts.noCache ?? (process.env.OCCUSAGE_DEBUG_NO_CACHE === 'true');
+
 	// Use PricingFetcher with using statement for automatic cleanup
-	using fetcher = new PricingFetcher(false, false);
+	using fetcher = new PricingFetcher(offline, forceRefresh, noCache);
 
 	const stats: MismatchStats = {
 		totalEntries: 0,
