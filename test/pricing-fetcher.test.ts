@@ -21,6 +21,28 @@ describe('pricing-fetcher', () => {
 			expect(typeof cost).toBe('number');
 			expect(cost).toBeGreaterThanOrEqual(0);
 		});
+
+		it('should accept noCache parameter in constructor', async () => {
+			await using fetcher = new PricingFetcher(false, false, true);
+			expect(fetcher).toBeInstanceOf(PricingFetcher);
+		});
+
+		it('should work with noCache enabled in offline mode', async () => {
+			await using fetcher = new PricingFetcher(true, false, true); // offline + noCache
+			const result = await fetcher.fetchModelPricing();
+			const pricing = Result.unwrap(result);
+			expect(pricing).toBeInstanceOf(Map);
+			expect(pricing.size).toBeGreaterThan(0);
+		});
+
+		it('should respect precedence: offline overrides forceRefresh and noCache', async () => {
+			// Test that offline mode works even with conflicting flags
+			await using fetcher = new PricingFetcher(true, true, true); // all flags true
+			const result = await fetcher.fetchModelPricing();
+			const pricing = Result.unwrap(result);
+			expect(pricing).toBeInstanceOf(Map);
+			expect(pricing.size).toBeGreaterThan(0);
+		});
 	});
 
 	describe('fetchModelPricing', () => {
