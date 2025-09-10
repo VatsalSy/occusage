@@ -14,7 +14,7 @@ import { LITELLM_PRICING_URL } from './_consts.ts';
 import { prefetchClaudePricing } from './_macro.ts' with { type: 'macro' };
 import { modelPricingSchema } from './_types.ts';
 import { logger } from './logger.ts';
-import { globalCacheManager } from './_cache-manager.ts';
+import { getGlobalCacheManager } from './_cache-manager.ts';
 
 /**
  * Fetches and caches model pricing information from LiteLLM
@@ -24,15 +24,18 @@ export class PricingFetcher implements Disposable {
 	private cachedPricing: Map<string, ModelPricing> | null = null;
 	private readonly offline: boolean;
 	private readonly forceRefresh: boolean;
+	private readonly noCache: boolean;
 
 	/**
 	 * Creates a new PricingFetcher instance
 	 * @param offline - Whether to use pre-fetched pricing data instead of fetching from API
 	 * @param forceRefresh - Whether to bypass cache and force refresh pricing data
+	 * @param noCache - Whether to disable all caching for this instance
 	 */
-	constructor(offline = false, forceRefresh = false) {
+	constructor(offline = false, forceRefresh = false, noCache = false) {
 		this.offline = offline;
 		this.forceRefresh = forceRefresh;
+		this.noCache = noCache;
 	}
 
 	/**
@@ -89,15 +92,16 @@ export class PricingFetcher implements Disposable {
 	 * @returns Map of model names to pricing information
 	 */
 	private async ensurePricingLoaded(): Result.ResultAsync<Map<string, ModelPricing>, Error> {
-		// Initialize cache manager
-		await globalCacheManager.initialize();
+		// Initialize cache manager with noCache configuration
+		const cacheManager = getGlobalCacheManager({ noCache: this.noCache });
+		await cacheManager.initialize();
 
 		return Result.pipe(
 			this.cachedPricing != null ? Result.succeed(this.cachedPricing) : Result.fail(new Error('Memory cache not available')),
 			Result.orElse(async () => {
-				// Check persistent cache first (unless force refresh or offline mode)
-				if (!this.offline && !this.forceRefresh) {
-					const cachedPricing = await globalCacheManager.getPricing();
+				// Check persistent cache first (unless force refresh, offline mode, or noCache)
+				if (!this.offline && !this.forceRefresh && !this.noCache) {
+					const cachedPricing = await cacheManager.getPricing();
 					if (cachedPricing) {
 						this.cachedPricing = cachedPricing;
 						logger.debug(`Using cached pricing data for ${cachedPricing.size} models`);
@@ -142,9 +146,13 @@ export class PricingFetcher implements Disposable {
 					}),
 					Result.andThen(async (pricing) => {
 						this.cachedPricing = pricing;
-						// Store in persistent cache
-						await globalCacheManager.setPricing(pricing);
-						logger.info(`Loaded and cached pricing for ${pricing.size} models`);
+						// Store in persistent cache (unless noCache is enabled)
+						if (!this.noCache) {
+							await cacheManager.setPricing(pricing);
+							logger.info(`Loaded and cached pricing for ${pricing.size} models`);
+						} else {
+							logger.info(`Loaded pricing for ${pricing.size} models (cache disabled)`);
+						}
 						return Result.succeed(pricing);
 					}),
 					Result.orElse(async error => this.handleFallbackToCachedPricing(error)),
