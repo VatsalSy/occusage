@@ -9,11 +9,12 @@
  */
 
 import type { ModelPricing } from './_types.ts';
-import { readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { readFile, writeFile, mkdir, stat, readdir, rename, unlink, rm } from 'node:fs/promises';
+import { existsSync, createReadStream } from 'node:fs';
 import path from 'node:path';
 import { Result } from '@praha/byethrow';
 import { createHash } from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
 import { xdgCache } from 'xdg-basedir';
 import { USER_HOME_DIR } from './_consts.ts';
 import { logger } from './logger.ts';
@@ -38,6 +39,7 @@ interface CacheConfig {
 	pricingCacheDays: number;
 	maxCacheSize?: number;
 	enabled: boolean;
+	noCache?: boolean;
 }
 
 /**
@@ -45,10 +47,14 @@ interface CacheConfig {
  */
 const DEFAULT_CONFIG: CacheConfig = {
 	cacheDir: process.env.OCCUSAGE_CACHE_DIR ?? DEFAULT_CACHE_DIR,
-	pricingCacheDays: Number(process.env.OCCUSAGE_PRICING_CACHE_DAYS) || 7,
+	pricingCacheDays: process.env.OCCUSAGE_PRICING_CACHE_DAYS !== undefined ? 
+		Number.parseInt(process.env.OCCUSAGE_PRICING_CACHE_DAYS, 10) : 7,
 	maxCacheSize: process.env.OCCUSAGE_CACHE_MAX_SIZE ? 
 		Number.parseInt(process.env.OCCUSAGE_CACHE_MAX_SIZE) : undefined,
-	enabled: process.env.OCCUSAGE_CACHE_ENABLED !== 'false' && process.env.NODE_ENV !== 'test',
+	enabled: process.env.NODE_ENV !== 'test' && (() => {
+		const value = process.env.OCCUSAGE_CACHE_ENABLED?.toLowerCase();
+		return !['0', 'false', 'no', 'off'].includes(value || '');
+	})(),
 };
 
 /**
@@ -111,10 +117,8 @@ export class CacheManager {
 	 * Ensure cache directory exists
 	 */
 	private async ensureCacheDir(): Promise<void> {
-		if (!existsSync(this.config.cacheDir)) {
-			await mkdir(this.config.cacheDir, { recursive: true });
-			logger.debug(`Created cache directory: ${this.config.cacheDir}`);
-		}
+		await mkdir(this.config.cacheDir, { recursive: true });
+		logger.debug(`Ensured cache directory exists: ${this.config.cacheDir}`);
 	}
 
 	/**
@@ -133,21 +137,46 @@ export class CacheManager {
 	}
 
 	/**
-	 * Get cache file path
+	 * Get cache file path with sanitized key
 	 */
 	private getCacheFilePath(key: string): string {
-		return path.join(this.config.cacheDir, `${key}.json`);
+		const safeKey = this.sanitizeKey(key);
+		return path.join(this.config.cacheDir, `${safeKey}.json`);
 	}
 
 	/**
-	 * Calculate file hash for change detection
+	 * Sanitize cache key to prevent path traversal and ensure valid filename
+	 */
+	private sanitizeKey(key: string): string {
+		// Remove path separators and dangerous patterns
+		let sanitized = key.replace(/[\/\\]/g, '_').replace(/\.\.+/g, '');
+		
+		// Remove leading dots
+		sanitized = sanitized.replace(/^\.+/, '');
+		
+		// Keep only safe characters
+		sanitized = sanitized.replace(/[^A-Za-z0-9._-]/g, '_');
+		
+		// Enforce max length and ensure non-empty
+		if (sanitized.length === 0 || sanitized.length > 200) {
+			return createHash('sha256').update(key).digest('hex');
+		}
+		
+		return sanitized;
+	}
+
+	/**
+	 * Calculate file hash for change detection using streaming
 	 */
 	private async calculateFileHash(filePath: string): Promise<string> {
 		return Result.unwrap(
 			Result.try({
 				try: async () => {
-					const content = await readFile(filePath);
-					return createHash('sha256').update(content).digest('hex');
+					const hash = createHash('sha256');
+					const stream = createReadStream(filePath);
+					
+					await pipeline(stream, hash);
+					return hash.digest('hex');
 				},
 				catch: (error) => new Error(`Failed to calculate hash for ${filePath}`, { cause: error }),
 			})
@@ -177,82 +206,99 @@ export class CacheManager {
 	}
 
 	/**
-	 * Check if cache entry exists and is valid
+	 * Read cache entry if it exists
 	 */
-	async isValid<T>(key: string, ttl?: number): Promise<boolean> {
-		if (!this.config.enabled) {
-			return false;
-		}
-
+	private async readCacheEntryIfExists<T>(key: string): Promise<CacheEntry<T> | null> {
 		return Result.unwrap(
 			Result.try({
 				try: async () => {
 					const filePath = this.getCacheFilePath(key);
 					
 					if (!existsSync(filePath)) {
-						return false;
+						return null;
 					}
 
 					const content = await readFile(filePath, 'utf-8');
-					const entry: CacheEntry<T> = JSON.parse(content);
-
-					// Check version compatibility
-					if (entry.version !== CACHE_VERSION) {
-						logger.debug(`Cache entry ${key} has incompatible version ${entry.version}, expected ${CACHE_VERSION}`);
-						return false;
-					}
-
-					// Check TTL
-					const entryTtl = ttl ?? entry.ttl;
-					if (entryTtl != null) {
-						const age = Date.now() - entry.timestamp;
-						if (age > entryTtl) {
-							logger.debug(`Cache entry ${key} expired (age: ${Math.round(age / 1000)}s, TTL: ${Math.round(entryTtl / 1000)}s)`);
-							return false;
-						}
-					}
-
-					return true;
+					return JSON.parse(content) as CacheEntry<T>;
 				},
 				catch: (error) => {
-					logger.debug(`Failed to check cache validity for ${key}:`, error);
-					return false;
+					logger.debug(`Failed to read cache entry ${key}:`, error);
+					return null;
 				},
 			})
 		);
 	}
 
 	/**
-	 * Get data from cache
+	 * Check if cache entry exists and is valid
 	 */
-	async get<T>(key: string, ttl?: number): Promise<T | null> {
-		if (!this.config.enabled) {
-			return null;
+	async isValid<T>(key: string, ttl?: number): Promise<boolean> {
+		if (!this.config.enabled || this.config.noCache) {
+			return false;
 		}
 
-		const isValid = await this.isValid<T>(key, ttl);
-		if (!isValid) {
-			return null;
+		const entry = await this.readCacheEntryIfExists<T>(key);
+		if (!entry) {
+			return false;
 		}
 
-		try {
-			const filePath = this.getCacheFilePath(key);
-			const content = await readFile(filePath, 'utf-8');
-			const entry: CacheEntry<T> = JSON.parse(content);
-			
-			logger.debug(`Cache hit for ${key}`);
-			return entry.data;
-		} catch (error) {
-			logger.debug(`Failed to read cache entry ${key}:`, error);
-			return null;
+		// Check version compatibility
+		if (entry.version !== CACHE_VERSION) {
+			logger.debug(`Cache entry ${key} has incompatible version ${entry.version}, expected ${CACHE_VERSION}`);
+			return false;
 		}
+
+		// Check TTL
+		const entryTtl = ttl ?? entry.ttl;
+		if (entryTtl != null) {
+			const age = Date.now() - entry.timestamp;
+			if (age > entryTtl) {
+				logger.debug(`Cache entry ${key} expired (age: ${Math.round(age / 1000)}s, TTL: ${Math.round(entryTtl / 1000)}s)`);
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
-	 * Store data in cache
+	 * Get data from cache
+	 */
+	async get<T>(key: string, ttl?: number): Promise<T | null> {
+		if (!this.config.enabled || this.config.noCache) {
+			return null;
+		}
+
+		const entry = await this.readCacheEntryIfExists<T>(key);
+		if (!entry) {
+			return null;
+		}
+
+		// Check version compatibility
+		if (entry.version !== CACHE_VERSION) {
+			logger.debug(`Cache entry ${key} has incompatible version ${entry.version}, expected ${CACHE_VERSION}`);
+			return null;
+		}
+
+		// Check TTL
+		const entryTtl = ttl ?? entry.ttl;
+		if (entryTtl != null) {
+			const age = Date.now() - entry.timestamp;
+			if (age > entryTtl) {
+				logger.debug(`Cache entry ${key} expired (age: ${Math.round(age / 1000)}s, TTL: ${Math.round(entryTtl / 1000)}s)`);
+				return null;
+			}
+		}
+
+		logger.debug(`Cache hit for ${key}`);
+		return entry.data;
+	}
+
+	/**
+	 * Store data in cache with atomic writes
 	 */
 	async set<T>(key: string, data: T, ttl?: number): Promise<void> {
-		if (!this.config.enabled) {
+		if (!this.config.enabled || this.config.noCache) {
 			return;
 		}
 
@@ -267,7 +313,12 @@ export class CacheManager {
 
 		try {
 			const filePath = this.getCacheFilePath(key);
-			await writeFile(filePath, JSON.stringify(entry, null, 2), 'utf-8');
+			const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+			const json = JSON.stringify(entry, null, 2);
+			
+			await writeFile(tmpPath, json, 'utf-8');
+			await rename(tmpPath, filePath);
+			
 			logger.debug(`Cached data for ${key}`);
 		} catch (error) {
 			logger.error(`Failed to cache data for ${key}:`, error);
@@ -279,7 +330,7 @@ export class CacheManager {
 	 * Remove cache entry
 	 */
 	async delete(key: string): Promise<void> {
-		if (!this.config.enabled) {
+		if (!this.config.enabled || this.config.noCache) {
 			return;
 		}
 
@@ -288,7 +339,6 @@ export class CacheManager {
 				try: async () => {
 					const filePath = this.getCacheFilePath(key);
 					if (existsSync(filePath)) {
-						const { unlink } = await import('node:fs/promises');
 						await unlink(filePath);
 						logger.debug(`Deleted cache entry ${key}`);
 					}
@@ -304,7 +354,7 @@ export class CacheManager {
 	 * Clear all cache entries
 	 */
 	async clear(): Promise<void> {
-		if (!this.config.enabled) {
+		if (!this.config.enabled || this.config.noCache) {
 			return;
 		}
 
@@ -312,7 +362,6 @@ export class CacheManager {
 			Result.try({
 				try: async () => {
 					if (existsSync(this.config.cacheDir)) {
-						const { rm } = await import('node:fs/promises');
 						await rm(this.config.cacheDir, { recursive: true, force: true });
 						logger.info(`Cleared cache directory: ${this.config.cacheDir}`);
 					}
@@ -352,22 +401,25 @@ export class CacheManager {
 		return Result.unwrap(
 			Result.try({
 				try: async () => {
-					const files = await readdir(this.config.cacheDir, { recursive: true });
-					
-					for (const file of files) {
-						if (typeof file === 'string' && file.endsWith('.json')) {
-							const filePath = path.join(this.config.cacheDir, file);
-							const fileStat = await stat(filePath);
-							
-							stats.totalFiles++;
-							stats.totalSize += fileStat.size;
-							
-							if (stats.oldestEntry === null || fileStat.mtimeMs < stats.oldestEntry) {
-								stats.oldestEntry = fileStat.mtimeMs;
-							}
-							
-							if (stats.newestEntry === null || fileStat.mtimeMs > stats.newestEntry) {
-								stats.newestEntry = fileStat.mtimeMs;
+					// Walk the cacheDir recursively, tallying only `.json` files
+					const queue: string[] = [this.config.cacheDir];
+					while (queue.length) {
+						const dir = queue.pop()!;
+						const entries = await readdir(dir, { withFileTypes: true });
+						for (const entry of entries) {
+							const full = path.join(dir, entry.name);
+							if (entry.isDirectory()) {
+								queue.push(full);
+							} else if (entry.isFile() && full.endsWith('.json')) {
+								const fileStat = await stat(full);
+								stats.totalFiles++;
+								stats.totalSize += fileStat.size;
+								if (stats.oldestEntry === null || fileStat.mtimeMs < stats.oldestEntry) {
+									stats.oldestEntry = fileStat.mtimeMs;
+								}
+								if (stats.newestEntry === null || fileStat.mtimeMs > stats.newestEntry) {
+									stats.newestEntry = fileStat.mtimeMs;
+								}
 							}
 						}
 					}
@@ -420,7 +472,7 @@ export class CacheManager {
 	}
 
 	/**
-	 * Check if file needs processing (new or modified)
+	 * Check if file needs processing (new or modified) - optimized fast path
 	 */
 	async needsProcessing(filePath: string): Promise<boolean> {
 		const processedFiles = await this.getProcessedFiles();
@@ -434,14 +486,18 @@ export class CacheManager {
 			return true; // File not tracked, need to process
 		}
 
-		// Check if file has changed
-		const currentMetadata = await this.getFileMetadata(filePath);
-		
-		return (
-			existing.size !== currentMetadata.size ||
-			existing.mtime !== currentMetadata.mtime ||
-			existing.hash !== currentMetadata.hash
-		);
+		// Fast path: check size and mtime first
+		try {
+			const s = await stat(filePath);
+			if (existing.size === s.size && existing.mtime === s.mtimeMs) {
+				return false; // File unchanged
+			}
+			// File stats changed, needs processing
+			return true;
+		} catch {
+			// File doesn't exist or can't be accessed, needs processing
+			return true;
+		}
 	}
 
 	/**
@@ -470,6 +526,33 @@ export class CacheManager {
 }
 
 /**
- * Global cache manager instance
+ * Global cache manager instance - lazy singleton pattern
  */
-export const globalCacheManager = new CacheManager();
+let globalCacheManagerInstance: CacheManager | null = null;
+
+/**
+ * Get the global cache manager instance (lazy initialization)
+ * @param config Optional cache configuration
+ */
+export function getGlobalCacheManager(config?: Partial<CacheConfig>): CacheManager {
+	if (!globalCacheManagerInstance || config?.noCache !== undefined) {
+		globalCacheManagerInstance = new CacheManager(config);
+	}
+	return globalCacheManagerInstance;
+}
+
+/**
+ * Reset global cache manager for testing
+ */
+export function resetGlobalCacheManager(): void {
+	if (process.env.NODE_ENV === 'test') {
+		globalCacheManagerInstance = null;
+	} else {
+		throw new Error('resetGlobalCacheManager can only be called in test environment');
+	}
+}
+
+/**
+ * @deprecated Use getGlobalCacheManager() instead
+ */
+export const globalCacheManager = getGlobalCacheManager();
