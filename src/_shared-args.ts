@@ -80,12 +80,12 @@ export const sharedArgs = {
 	},
 	forceRefreshPricing: {
 		type: 'boolean',
-		description: 'Force refresh pricing data from API, bypassing cache',
+		description: 'Force refresh pricing data from API, bypassing cache (ignored if --offline)',
 		default: false,
 	},
 	noCache: {
 		type: 'boolean',
-		description: 'Disable all caching for this run',
+		description: 'Disable all caching (reads and writes) for this run',
 		default: false,
 	},
 	color: { // --color and FORCE_COLOR=1 is handled by picocolors
