@@ -22,6 +22,8 @@ import { getGlobalCacheManager } from './_cache-manager.ts';
  */
 export class PricingFetcher implements Disposable {
 	private cachedPricing: Map<string, ModelPricing> | null = null;
+	private cacheTimestamp: number | null = null;
+	private readonly cacheTTL: number;
 	private readonly offline: boolean;
 	private readonly forceRefresh: boolean;
 	private readonly noCache: boolean;
@@ -36,6 +38,15 @@ export class PricingFetcher implements Disposable {
 		this.offline = offline;
 		this.forceRefresh = forceRefresh;
 		this.noCache = noCache;
+		// Calculate TTL from environment or use default (7 days)
+		const pricingCacheDays = (() => {
+			if (process.env.OCCUSAGE_PRICING_CACHE_DAYS === undefined) {
+				return 7;
+			}
+			const parsed = Number.parseInt(process.env.OCCUSAGE_PRICING_CACHE_DAYS, 10);
+			return Number.isNaN(parsed) || parsed < 0 ? 7 : parsed;
+		})();
+		this.cacheTTL = Math.max(0, pricingCacheDays) * 24 * 60 * 60 * 1000;
 	}
 
 	/**
@@ -50,6 +61,7 @@ export class PricingFetcher implements Disposable {
 	 */
 	clearCache(): void {
 		this.cachedPricing = null;
+		this.cacheTimestamp = null;
 	}
 
 	/**
@@ -60,6 +72,7 @@ export class PricingFetcher implements Disposable {
 		try: async () => {
 			const pricing = new Map(Object.entries(await prefetchClaudePricing()));
 			this.cachedPricing = pricing;
+			this.cacheTimestamp = Date.now();
 			return pricing;
 		},
 		catch: error => new Error('Failed to load offline pricing data', { cause: error }),
@@ -92,18 +105,29 @@ export class PricingFetcher implements Disposable {
 	 * @returns Map of model names to pricing information
 	 */
 	private async ensurePricingLoaded(): Result.ResultAsync<Map<string, ModelPricing>, Error> {
-		// Initialize cache manager with noCache configuration
-		const cacheManager = getGlobalCacheManager({ noCache: this.noCache });
+		// Initialize cache manager without passing noCache (singleton pattern)
+		const cacheManager = getGlobalCacheManager();
 		await cacheManager.initialize();
 
 		return Result.pipe(
-			this.cachedPricing != null ? Result.succeed(this.cachedPricing) : Result.fail(new Error('Memory cache not available')),
+			// Check in-memory cache with TTL validation
+			(() => {
+				if (this.cachedPricing != null && this.cacheTimestamp != null) {
+					const age = Date.now() - this.cacheTimestamp;
+					if (age <= this.cacheTTL) {
+						return Result.succeed(this.cachedPricing);
+					}
+					logger.debug(`In-memory cache expired (age: ${Math.round(age / 1000)}s, TTL: ${Math.round(this.cacheTTL / 1000)}s)`);
+				}
+				return Result.fail(new Error('Memory cache not available or expired'));
+			})(),
 			Result.orElse(async () => {
 				// Check persistent cache first (unless force refresh, offline mode, or noCache)
 				if (!this.offline && !this.forceRefresh && !this.noCache) {
 					const cachedPricing = await cacheManager.getPricing();
 					if (cachedPricing) {
 						this.cachedPricing = cachedPricing;
+						this.cacheTimestamp = Date.now();
 						logger.debug(`Using cached pricing data for ${cachedPricing.size} models`);
 						return Result.succeed(cachedPricing);
 					}
@@ -146,10 +170,16 @@ export class PricingFetcher implements Disposable {
 					}),
 					Result.andThen(async (pricing) => {
 						this.cachedPricing = pricing;
+						this.cacheTimestamp = Date.now();
 						// Store in persistent cache (unless noCache is enabled)
 						if (!this.noCache) {
-							await cacheManager.setPricing(pricing);
-							logger.info(`Loaded and cached pricing for ${pricing.size} models`);
+							try {
+								await cacheManager.setPricing(pricing);
+								logger.info(`Loaded and cached pricing for ${pricing.size} models`);
+							} catch (error) {
+								logger.error('Failed to write pricing to persistent cache:', error);
+								return Result.fail(new Error('Failed to cache pricing data', { cause: error }));
+							}
 						} else {
 							logger.info(`Loaded pricing for ${pricing.size} models (cache disabled)`);
 						}
