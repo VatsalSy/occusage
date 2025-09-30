@@ -47,10 +47,20 @@ interface CacheConfig {
  */
 const DEFAULT_CONFIG: CacheConfig = {
 	cacheDir: process.env.OCCUSAGE_CACHE_DIR ?? DEFAULT_CACHE_DIR,
-	pricingCacheDays: process.env.OCCUSAGE_PRICING_CACHE_DAYS !== undefined ? 
-		Number.parseInt(process.env.OCCUSAGE_PRICING_CACHE_DAYS, 10) : 7,
-	maxCacheSize: process.env.OCCUSAGE_CACHE_MAX_SIZE ? 
-		Number.parseInt(process.env.OCCUSAGE_CACHE_MAX_SIZE) : undefined,
+	pricingCacheDays: (() => {
+		if (process.env.OCCUSAGE_PRICING_CACHE_DAYS === undefined) {
+			return 7;
+		}
+		const parsed = Number.parseInt(process.env.OCCUSAGE_PRICING_CACHE_DAYS, 10);
+		return Number.isNaN(parsed) || parsed < 0 ? 7 : parsed;
+	})(),
+	maxCacheSize: (() => {
+		if (!process.env.OCCUSAGE_CACHE_MAX_SIZE) {
+			return undefined;
+		}
+		const parsed = Number.parseInt(process.env.OCCUSAGE_CACHE_MAX_SIZE, 10);
+		return Number.isNaN(parsed) || parsed < 0 ? undefined : parsed;
+	})(),
 	enabled: process.env.NODE_ENV !== 'test' && (() => {
 		const value = process.env.OCCUSAGE_CACHE_ENABLED?.toLowerCase();
 		return !['0', 'false', 'no', 'off'].includes(value || '');
@@ -213,15 +223,13 @@ export class CacheManager {
 			Result.try({
 				try: async () => {
 					const filePath = this.getCacheFilePath(key);
-					
-					if (!existsSync(filePath)) {
-						return null;
-					}
-
 					const content = await readFile(filePath, 'utf-8');
 					return JSON.parse(content) as CacheEntry<T>;
 				},
 				catch: (error) => {
+					if (error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+						return null;
+					}
 					logger.debug(`Failed to read cache entry ${key}:`, error);
 					return null;
 				},
@@ -338,12 +346,13 @@ export class CacheManager {
 			Result.try({
 				try: async () => {
 					const filePath = this.getCacheFilePath(key);
-					if (existsSync(filePath)) {
-						await unlink(filePath);
-						logger.debug(`Deleted cache entry ${key}`);
-					}
+					await unlink(filePath);
+					logger.debug(`Deleted cache entry ${key}`);
 				},
 				catch: (error) => {
+					if (error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+						return;
+					}
 					logger.debug(`Failed to delete cache entry ${key}:`, error);
 				},
 			})
@@ -361,10 +370,8 @@ export class CacheManager {
 		return Result.unwrap(
 			Result.try({
 				try: async () => {
-					if (existsSync(this.config.cacheDir)) {
-						await rm(this.config.cacheDir, { recursive: true, force: true });
-						logger.info(`Cleared cache directory: ${this.config.cacheDir}`);
-					}
+					await rm(this.config.cacheDir, { recursive: true, force: true });
+					logger.info(`Cleared cache directory: ${this.config.cacheDir}`);
 				},
 				catch: (error) => {
 					logger.error(`Failed to clear cache:`, error);
@@ -438,13 +445,13 @@ export class CacheManager {
 	 * Get pricing cache with TTL support
 	 */
 	async getPricing(): Promise<Map<string, ModelPricing> | null> {
-		const ttl = this.config.pricingCacheDays * 24 * 60 * 60 * 1000; // Convert days to milliseconds
+		const ttl = Math.max(0, this.config.pricingCacheDays) * 24 * 60 * 60 * 1000; // Convert days to milliseconds
 		const cached = await this.get<Record<string, ModelPricing>>('pricing', ttl);
-		
+
 		if (cached) {
 			return new Map(Object.entries(cached));
 		}
-		
+
 		return null;
 	}
 
@@ -452,7 +459,7 @@ export class CacheManager {
 	 * Set pricing cache
 	 */
 	async setPricing(pricing: Map<string, ModelPricing>): Promise<void> {
-		const ttl = this.config.pricingCacheDays * 24 * 60 * 60 * 1000; // Convert days to milliseconds
+		const ttl = Math.max(0, this.config.pricingCacheDays) * 24 * 60 * 60 * 1000; // Convert days to milliseconds
 		const data = Object.fromEntries(pricing);
 		await this.set('pricing', data, ttl);
 	}
@@ -535,7 +542,7 @@ let globalCacheManagerInstance: CacheManager | null = null;
  * @param config Optional cache configuration
  */
 export function getGlobalCacheManager(config?: Partial<CacheConfig>): CacheManager {
-	if (!globalCacheManagerInstance || config?.noCache !== undefined) {
+	if (!globalCacheManagerInstance) {
 		globalCacheManagerInstance = new CacheManager(config);
 	}
 	return globalCacheManagerInstance;
