@@ -73,8 +73,13 @@ type MismatchStats = {
  * @param opts - Configuration options for debug behavior
  * @param opts.offline - Whether to use pre-fetched pricing data instead of fetching from API
  * @param opts.forceRefreshPricing - Whether to bypass cache and force refresh pricing data
- * @param opts.noCache - Whether to disable all caching for this instance
+ * @param opts.noCache - Whether to disable persistent caching for this instance
  * @returns Statistics about pricing mismatches found
+ *
+ * @remarks
+ * Precedence: opts.offline/OCCUSAGE_OFFLINE takes precedence over forceRefresh.
+ * When offline is false, forceRefresh is derived from opts.forceRefreshPricing or OCCUSAGE_DEBUG_FORCE_REFRESH.
+ * noCache (opts.noCache or OCCUSAGE_DEBUG_NO_CACHE) is passed through to the cache/pricing manager.
  */
 export async function detectMismatches(
 	claudePath?: string,
