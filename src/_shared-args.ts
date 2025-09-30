@@ -78,6 +78,16 @@ export const sharedArgs = {
 		description: 'Use cached pricing data for Claude models instead of fetching from API',
 		default: false,
 	},
+	forceRefreshPricing: {
+		type: 'boolean',
+		description: 'Force refresh pricing data from API, bypassing persistent cache (ignored when --offline is set)',
+		default: false,
+	},
+	noCache: {
+		type: 'boolean',
+		description: 'Disable persistent cache storage (in-process memory caching may still occur)',
+		default: false,
+	},
 	color: { // --color and FORCE_COLOR=1 is handled by picocolors
 		type: 'boolean',
 		description: 'Enable colored output (default: auto). FORCE_COLOR=1 has the same effect.',
