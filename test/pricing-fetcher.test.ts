@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { PricingFetcher } from '../src/pricing-fetcher.ts';
 import { Result } from '@praha/byethrow';
+import { CacheManager } from '../src/_cache-manager.ts';
 
 describe('pricing-fetcher', () => {
 	describe('pricingFetcher class', () => {
@@ -28,20 +29,46 @@ describe('pricing-fetcher', () => {
 		});
 
 		it('should work with noCache enabled in offline mode', async () => {
-			await using fetcher = new PricingFetcher(true, false, true); // offline + noCache
-			const result = await fetcher.fetchModelPricing();
-			const pricing = Result.unwrap(result);
-			expect(pricing).toBeInstanceOf(Map);
-			expect(pricing.size).toBeGreaterThan(0);
+			// Spy on cache methods to verify they're not called
+			const getPricingSpy = vi.spyOn(CacheManager.prototype, 'getPricing');
+			const setPricingSpy = vi.spyOn(CacheManager.prototype, 'setPricing');
+
+			try {
+				await using fetcher = new PricingFetcher(true, false, true); // offline + noCache
+				const result = await fetcher.fetchModelPricing();
+				const pricing = Result.unwrap(result);
+				expect(pricing).toBeInstanceOf(Map);
+				expect(pricing.size).toBeGreaterThan(0);
+
+				// Verify cache methods were not called when noCache=true
+				expect(getPricingSpy).not.toHaveBeenCalled();
+				expect(setPricingSpy).not.toHaveBeenCalled();
+			} finally {
+				getPricingSpy.mockRestore();
+				setPricingSpy.mockRestore();
+			}
 		});
 
 		it('should respect precedence: offline overrides forceRefresh and noCache', async () => {
 			// Test that offline mode works even with conflicting flags
-			await using fetcher = new PricingFetcher(true, true, true); // all flags true
-			const result = await fetcher.fetchModelPricing();
-			const pricing = Result.unwrap(result);
-			expect(pricing).toBeInstanceOf(Map);
-			expect(pricing.size).toBeGreaterThan(0);
+			// Spy on cache methods to verify they're not called
+			const getPricingSpy = vi.spyOn(CacheManager.prototype, 'getPricing');
+			const setPricingSpy = vi.spyOn(CacheManager.prototype, 'setPricing');
+
+			try {
+				await using fetcher = new PricingFetcher(true, true, true); // all flags true
+				const result = await fetcher.fetchModelPricing();
+				const pricing = Result.unwrap(result);
+				expect(pricing).toBeInstanceOf(Map);
+				expect(pricing.size).toBeGreaterThan(0);
+
+				// Verify cache methods were not called when noCache=true
+				expect(getPricingSpy).not.toHaveBeenCalled();
+				expect(setPricingSpy).not.toHaveBeenCalled();
+			} finally {
+				getPricingSpy.mockRestore();
+				setPricingSpy.mockRestore();
+			}
 		});
 	});
 
