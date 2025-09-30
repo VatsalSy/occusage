@@ -1,7 +1,7 @@
 {
 	"name": "occusage",
 	"type": "module",
-	"version": "15.9.2",
+	"version": "1.8.0",
 	"description": "Bun-based CLI for OpenCode & Claude Code usage analysis",
 	"author": "Vatsal Sanjay <vatsal.sanjay@comphy-lab.org>",
 	"license": "MIT",
