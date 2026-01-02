@@ -32,7 +32,7 @@ export const monthlyCommand = define({
 			type: 'number',
 			short: 'M',
 			description: 'Day of month to start billing cycle on (1-31)',
-			default: 11,
+			default: 28,
 		},
 	},
 	toKebab: true,
