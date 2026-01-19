@@ -31,10 +31,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .idea
 
 # Finder (MacOS) folder config
-.DS_Store
+**/.DS_Store
 
 .eslintcache
 
-CLAUDE.md
-# Cursor AI agent configuration
-**/.cursor
