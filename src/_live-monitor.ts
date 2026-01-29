@@ -33,6 +33,7 @@ export type LiveMonitorConfig = {
 	sessionDurationHours: number;
 	mode: CostMode;
 	order: SortOrder;
+	includeOpenCode?: boolean;
 };
 
 /**
@@ -210,21 +211,24 @@ export class LiveMonitor implements Disposable {
 
 		// Load OpenCode data periodically (every 5 seconds to balance responsiveness and performance)
 		const now = Date.now();
-		if (now - this.lastOpenCodeLoadTime > 5000) {
+		if ((this.config.includeOpenCode ?? true) && now - this.lastOpenCodeLoadTime > 5000) {
 			try {
 				const openCodeEntries = loadOpenCodeData(undefined, true); // Suppress logs during live monitoring
 
-				// Track new OpenCode entries using hashes to prevent duplicates
-				for (const entry of openCodeEntries) {
-					// Create a unique hash for this OpenCode entry
-					const entryHash = `opencode-${entry.timestamp.toISOString()}-${entry.model}-${entry.tokens.input}-${entry.tokens.output}`;
+			// Track new OpenCode entries using hashes to prevent duplicates
+			for (const entry of openCodeEntries) {
+				// Create a unique hash for this OpenCode entry
+				// Include projectPath or encodedProjectPath to reduce collisions between projects
+				const projectIdentifier = entry.projectPath ?? entry.encodedProjectPath ?? 'unknown-project';
+				const entryIdentity = entry.messageId ?? entry.sessionId ?? 'no-id';
+				const entryHash = `opencode-${projectIdentifier}-${entry.timestamp.toISOString()}-${entry.model}-${entry.tokens.input}-${entry.tokens.output}-${entryIdentity}`;
 
-					// Skip if we've already processed this entry
-					if (this.openCodeHashes.has(entryHash)) {
-						continue;
-					}
+				// Skip if we've already processed this entry
+				if (this.openCodeHashes.has(entryHash)) {
+					continue;
+				}
 
-					this.openCodeHashes.add(entryHash);
+				this.openCodeHashes.add(entryHash);
 
 					// Calculate cost for OpenCode entries when cost is missing
 					let costUSD = entry.cost ?? 0;
@@ -315,5 +319,3 @@ export class LiveMonitor implements Disposable {
 		// Also don't clear cachedActiveBlock to prevent flickering
 	}
 }
-
-
