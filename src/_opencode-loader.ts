@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import {
+	CLAUDE_PROJECTS_DIR_NAME,
 	DEFAULT_OPENCODE_DATA_PATH,
 	OPENCODE_DATA_DIR_ENV,
 	OPENCODE_PROJECTS_DIR_NAME,
@@ -37,11 +38,27 @@ function normalizeModelId(modelId?: string): string | null {
 }
 
 /**
+ * Check if a path is a Windows absolute path
+ * Matches: C:\path, D:\path, C:/path, \\UNC\path
+ */
+function isWindowsAbsolutePath(path: string): boolean {
+	// Drive letter: C:\ or C:/
+	if (/^[A-Za-z]:[\\/]/.test(path)) {
+		return true;
+	}
+	// UNC path: \\server\share
+	if (/^\\\\/.test(path)) {
+		return true;
+	}
+	return false;
+}
+
+/**
  * Encode project path for OpenCode storage using URL encoding
  */
 export function encodeProjectPath(path: string): string {
-	// Remove leading slash if present
-	const pathWithoutSlash = path.startsWith('/') ? path.slice(1) : path;
+	// Remove leading slash if present (but preserve Windows paths)
+	const pathWithoutSlash = path.startsWith('/') && !isWindowsAbsolutePath(path) ? path.slice(1) : path;
 	return encodeURIComponent(pathWithoutSlash);
 }
 
@@ -55,7 +72,11 @@ export function decodeProjectPath(encodedPath: string): string {
 		try {
 			// Try URL decoding first (new encoding method)
 			const decodedPath = decodeURIComponent(encodedPath);
-			// Ensure leading slash
+			// Skip leading-slash normalization for Windows absolute paths
+			if (isWindowsAbsolutePath(decodedPath)) {
+				return decodedPath;
+			}
+			// Ensure leading slash for POSIX paths
 			return decodedPath.startsWith('/') ? decodedPath : `/${decodedPath}`;
 		} catch {
 			// If URL decoding fails, fall through to legacy method
@@ -77,6 +98,10 @@ export function decodeProjectPath(encodedPath: string): string {
 	}
 
 	// Default: treat as already-decoded simple project name segment
+	// Skip leading-slash normalization for Windows absolute paths
+	if (isWindowsAbsolutePath(encodedPath)) {
+		return encodedPath;
+	}
 	return encodedPath.startsWith('/') ? encodedPath : `/${encodedPath}`;
 }
 
@@ -294,6 +319,111 @@ function extractTokensFromMessage(message: OpenCodeMessage): OpenCodeUsageEntry[
 }
 
 /**
+ * Load OpenCode usage data from legacy JSONL format (similar to Claude Code)
+ * This format is used in older OpenCode installations with projects/ directory
+ */
+function loadLegacyData(projectsPath: string): OpenCodeUsageEntry[] {
+	const entries: OpenCodeUsageEntry[] = [];
+	
+	if (!existsSync(projectsPath)) {
+		return entries;
+	}
+	
+	try {
+		const projectDirs = readdirSync(projectsPath);
+		
+		for (const encodedProjectDir of projectDirs) {
+			const projectDirPath = join(projectsPath, encodedProjectDir);
+			
+			// Skip if not a directory
+			try {
+				const stat = require('node:fs').statSync(projectDirPath);
+				if (!stat.isDirectory()) {
+					continue;
+				}
+			} catch {
+				continue;
+			}
+			
+			// Find JSONL files in this project directory
+			const usageFiles = readdirSync(projectDirPath)
+				.filter(f => f.endsWith('.jsonl') && f.startsWith('usage_'));
+			
+			const projectPath = decodeProjectPath(encodedProjectDir);
+			
+			for (const usageFile of usageFiles) {
+				const usageFilePath = join(projectDirPath, usageFile);
+				const sessionId = usageFile.replace('.jsonl', '').replace('usage_', '');
+				
+				try {
+					const content = readFileSync(usageFilePath, 'utf-8');
+					const lines = content.trim().split('\n').filter(line => line.length > 0);
+					
+					for (const line of lines) {
+						try {
+							const parsed = JSON.parse(line) as unknown;
+							
+							// Expected format similar to Claude Code JSONL:
+							// { timestamp, message: { model, usage: { input_tokens, output_tokens, ... } }, costUSD?, ... }
+							const timestamp = (parsed as any)?.timestamp;
+							const message = (parsed as any)?.message;
+							const model = (parsed as any)?.message?.model ?? (parsed as any)?.model;
+							const usage = (parsed as any)?.message?.usage ?? (parsed as any)?.usage;
+							const costUSD = (parsed as any)?.costUSD;
+							const messageId = (parsed as any)?.message?.id ?? (parsed as any)?.messageId;
+							
+							if (timestamp == null || usage == null) {
+								continue;
+							}
+							
+							const normalizedModel = normalizeModelId(model);
+							if (normalizedModel == null || normalizedModel === 'unknown' || !normalizedModel.includes('claude')) {
+								continue;
+							}
+							
+							const tokens: OpenCodeUsageEntry['tokens'] = {
+								input: usage.input_tokens ?? 0,
+								output: usage.output_tokens ?? 0,
+							};
+							
+							const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+							const cacheRead = usage.cache_read_input_tokens ?? 0;
+							if (cacheWrite > 0 || cacheRead > 0) {
+								tokens.cache = {
+									write: cacheWrite,
+									read: cacheRead,
+								};
+							}
+							
+							entries.push({
+								sessionId,
+								projectPath,
+								encodedProjectPath: encodedProjectDir,
+								timestamp: new Date(timestamp),
+								model: model ?? 'unknown',
+								provider: (parsed as any)?.provider,
+								tokens,
+								cost: costUSD,
+								messageId: messageId,
+								type: (parsed as any)?.message?.role ?? (parsed as any)?.role,
+							});
+						} catch (err) {
+							logger.debug('Failed to parse legacy OpenCode JSONL line:', err);
+						}
+					}
+				} catch (err) {
+					logger.debug('Failed to read legacy OpenCode JSONL file:', usageFilePath, err);
+				}
+			}
+		}
+	} catch (error) {
+		logger.debug('Error reading legacy OpenCode projects:', error);
+	}
+	
+	return entries;
+}
+
+/**
  * Load OpenCode usage data from storage directory
  */
 function loadStorageData(storagePath: string): OpenCodeUsageEntry[] {
@@ -367,7 +497,7 @@ function loadStorageData(storagePath: string): OpenCodeUsageEntry[] {
 
 				const modelFromMessage = message.model;
 				const modelRaw = message.modelID
-					?? (typeof modelFromMessage === 'string' ? modelFromMessage : modelFromMessage?.modelID)
+					?? (modelFromMessage != null && typeof modelFromMessage === 'string' ? modelFromMessage : modelFromMessage != null && typeof modelFromMessage === 'object' ? modelFromMessage.modelID : undefined)
 					?? primaryPart?.modelID;
 				const normalizedModel = normalizeModelId(modelRaw);
 				if (normalizedModel == null || normalizedModel === 'unknown' || !normalizedModel.includes('claude')) {
@@ -375,15 +505,25 @@ function loadStorageData(storagePath: string): OpenCodeUsageEntry[] {
 				}
 
 				const provider = message.providerID
-					?? (typeof modelFromMessage === 'object' ? modelFromMessage.providerID : undefined)
+					?? (modelFromMessage != null && typeof modelFromMessage === 'object' ? modelFromMessage.providerID : undefined)
 					?? primaryPart?.providerID
 					?? message.provider;
 
-				const projectPath = message.path?.root
+				// Determine project path with fallback handling
+				// Prefer explicit paths over project key; use placeholder for missing paths
+				const resolvedProjectPath = message.path?.root
 					?? message.path?.cwd
 					?? sessionProjectPath
-					?? projectMap.get(projectId)
-					?? projectKey;
+					?? projectMap.get(projectId);
+				
+				// Skip entries without a valid project path
+				// (projectKey alone is not a filesystem path - it's an ID like "proj_123")
+				if (resolvedProjectPath == null || resolvedProjectPath === '') {
+					logger.debug(`Skipping OpenCode entry without valid project path (projectKey: ${projectKey})`);
+					continue;
+				}
+				
+				const projectPath = resolvedProjectPath;
 
 				entries.push({
 					sessionId,
@@ -406,6 +546,7 @@ function loadStorageData(storagePath: string): OpenCodeUsageEntry[] {
 
 /**
  * Load all OpenCode usage data
+ * Supports both new storage/ layout and legacy projects/ JSONL layout
  */
 export function loadOpenCodeData(openCodePath?: string, suppressLogs = false): OpenCodeUsageEntry[] {
 	// If a specific path is provided (for testing), use only that
@@ -414,17 +555,36 @@ export function loadOpenCodeData(openCodePath?: string, suppressLogs = false): O
 
 	for (const dir of directories) {
 		const storagePath = join(dir, OPENCODE_STORAGE_DIR_NAME);
-		if (!existsSync(storagePath)) {
-			logger.debug('OpenCode storage directory not found:', storagePath);
-			continue;
+		const projectsPath = join(dir, CLAUDE_PROJECTS_DIR_NAME);
+		
+		// Prefer storage layout (new format) if it exists
+		if (existsSync(storagePath)) {
+			try {
+				const entries = loadStorageData(storagePath);
+				allEntries.push(...entries);
+				if (!suppressLogs && entries.length > 0) {
+					logger.debug(`Loaded ${entries.length} OpenCode entries from storage layout: ${storagePath}`);
+				}
+			}
+			catch (error) {
+				logger.warn('Error reading OpenCode storage:', error);
+			}
 		}
-
-		try {
-			const entries = loadStorageData(storagePath);
-			allEntries.push(...entries);
+		// Fallback to legacy projects/ JSONL layout if storage doesn't exist
+		else if (existsSync(projectsPath)) {
+			try {
+				const entries = loadLegacyData(projectsPath);
+				allEntries.push(...entries);
+				if (!suppressLogs && entries.length > 0) {
+					logger.debug(`Loaded ${entries.length} OpenCode entries from legacy layout: ${projectsPath}`);
+				}
+			}
+			catch (error) {
+				logger.warn('Error reading OpenCode legacy projects:', error);
+			}
 		}
-		catch (error) {
-			logger.warn('Error reading OpenCode storage:', error);
+		else {
+			logger.debug('No OpenCode data found (checked storage and legacy layouts):', dir);
 		}
 	}
 
