@@ -33,6 +33,7 @@ describe('LiveMonitor', () => {
 			sessionDurationHours: 5,
 			mode: 'display',
 			order: 'desc',
+			includeOpenCode: false,
 		});
 	});
 
@@ -77,6 +78,7 @@ describe('LiveMonitor', () => {
 			sessionDurationHours: 5,
 			mode: 'display',
 			order: 'desc',
+			includeOpenCode: false,
 		});
 
 		const activeBlock = await emptyMonitor.getActiveBlock();

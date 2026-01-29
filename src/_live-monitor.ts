@@ -33,6 +33,7 @@ export type LiveMonitorConfig = {
 	sessionDurationHours: number;
 	mode: CostMode;
 	order: SortOrder;
+	includeOpenCode?: boolean;
 };
 
 /**
@@ -210,7 +211,7 @@ export class LiveMonitor implements Disposable {
 
 		// Load OpenCode data periodically (every 5 seconds to balance responsiveness and performance)
 		const now = Date.now();
-		if (now - this.lastOpenCodeLoadTime > 5000) {
+		if ((this.config.includeOpenCode ?? true) && now - this.lastOpenCodeLoadTime > 5000) {
 			try {
 				const openCodeEntries = loadOpenCodeData(undefined, true); // Suppress logs during live monitoring
 
@@ -315,5 +316,4 @@ export class LiveMonitor implements Disposable {
 		// Also don't clear cachedActiveBlock to prevent flickering
 	}
 }
-
 

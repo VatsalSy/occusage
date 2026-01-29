@@ -82,6 +82,7 @@ export type LiveMonitoringConfig = {
 	sessionDurationHours: number;
 	mode: CostMode;
 	order: SortOrder;
+	includeOpenCode?: boolean;
 };
 
 /**

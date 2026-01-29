@@ -151,6 +151,11 @@ export const DEFAULT_OPENCODE_DATA_PATH = '.local/share/opencode';
 export const OPENCODE_DATA_DIR_ENV = 'OPENCODE_DATA_DIR';
 
 /**
+ * OpenCode storage directory name
+ */
+export const OPENCODE_STORAGE_DIR_NAME = 'storage';
+
+/**
  * OpenCode projects directory name (note: singular in OpenCode)
  */
 export const OPENCODE_PROJECTS_DIR_NAME = 'project';

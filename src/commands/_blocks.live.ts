@@ -51,6 +51,7 @@ export async function startLiveMonitoring(config: LiveMonitoringConfig): Promise
 		sessionDurationHours: config.sessionDurationHours,
 		mode: config.mode,
 		order: config.order,
+		includeOpenCode: config.includeOpenCode,
 	});
 
 	const monitoringResult = await Result.try({

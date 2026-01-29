@@ -1,13 +1,47 @@
 import { z } from 'zod';
 
+const opencodeTokensSchema = z.object({
+	input: z.number().optional(),
+	output: z.number().optional(),
+	reasoning: z.number().optional(),
+	cache: z
+		.object({
+			read: z.number().optional(),
+			write: z.number().optional(),
+		})
+		.optional(),
+});
+
+const opencodeModelSchema = z.object({
+	providerID: z.string().optional(),
+	modelID: z.string().optional(),
+});
+
+/**
+ * OpenCode project info schema
+ */
+export const opencodeProjectSchema = z.object({
+	id: z.string(),
+	worktree: z.string().optional(),
+	directory: z.string().optional(),
+});
+
+export type OpenCodeProjectInfo = z.infer<typeof opencodeProjectSchema>;
+
 /**
  * OpenCode session info schema
  */
 export const opencodeSessionInfoSchema = z.object({
 	id: z.string(),
+	projectID: z.string().optional(),
+	directory: z.string().optional(),
 	title: z.string().optional(),
-	lastMessage: z.number().optional(), // Unix timestamp
-	createdAt: z.number().optional(), // Unix timestamp
+	time: z
+		.object({
+			created: z.number().optional(),
+			updated: z.number().optional(),
+		})
+		.optional(),
 });
 
 export type OpenCodeSessionInfo = z.infer<typeof opencodeSessionInfoSchema>;
@@ -28,7 +62,15 @@ export const opencodeMessageSchema = z.object({
 	modelID: z.string().optional(), // Model identifier (e.g., "claude-opus-4-1-20250805")
 	providerID: z.string().optional(), // Provider (e.g., "anthropic")
 	provider: z.string().optional(), // Legacy field
-	model: z.string().optional(), // Legacy field
+	model: z.union([z.string(), opencodeModelSchema]).optional(), // Legacy or nested model
+	tokens: opencodeTokensSchema.optional(),
+	cost: z.number().optional(),
+	path: z
+		.object({
+			cwd: z.string().optional(),
+			root: z.string().optional(),
+		})
+		.optional(),
 	systemPrompt: z.string().optional(),
 });
 
@@ -40,19 +82,7 @@ export type OpenCodeMessage = z.infer<typeof opencodeMessageSchema>;
 export const opencodePartSchema = z.object({
 	id: z.string(),
 	type: z.enum(['step-finish', 'text', 'tool-use', 'tool-result', 'error']),
-	tokens: z
-		.object({
-			input: z.number().optional(),
-			output: z.number().optional(),
-			reasoning: z.number().optional(),
-			cache: z
-				.object({
-					read: z.number().optional(),
-					write: z.number().optional(),
-				})
-				.optional(),
-		})
-		.optional(),
+	tokens: opencodeTokensSchema.optional(),
 	cost: z.number().optional(),
 	modelID: z.string().optional(),
 	providerID: z.string().optional(),

@@ -1,4 +1,4 @@
-import type { OpenCodeMessage, OpenCodePart, OpenCodeUsageEntry } from './_opencode-types.ts';
+import type { OpenCodeMessage, OpenCodePart, OpenCodeSessionInfo, OpenCodeUsageEntry } from './_opencode-types.ts';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
@@ -6,11 +6,14 @@ import {
 	DEFAULT_OPENCODE_DATA_PATH,
 	OPENCODE_DATA_DIR_ENV,
 	OPENCODE_PROJECTS_DIR_NAME,
+	OPENCODE_STORAGE_DIR_NAME,
 	USER_HOME_DIR,
 } from './_consts.ts';
 import {
 	opencodeMessageSchema,
 	opencodePartSchema,
+	opencodeProjectSchema,
+	opencodeSessionInfoSchema,
 } from './_opencode-types.ts';
 import { logger } from './logger.ts';
 
@@ -99,13 +102,64 @@ export function getOpenCodeDirectories(): string[] {
 	return [];
 }
 
+/**
+ * Load OpenCode project paths keyed by project ID
+ */
+function loadProjectMap(storagePath: string): Map<string, string> {
+	const projectMap = new Map<string, string>();
+	const projectsPath = join(storagePath, OPENCODE_PROJECTS_DIR_NAME);
+
+	if (!existsSync(projectsPath)) {
+		return projectMap;
+	}
+
+	try {
+		const projectFiles = readdirSync(projectsPath).filter(f => f.endsWith('.json'));
+		for (const file of projectFiles) {
+			const projectPath = join(projectsPath, file);
+			try {
+				const content = readFileSync(projectPath, 'utf-8');
+				const parsed = JSON.parse(content) as unknown;
+				const validated = opencodeProjectSchema.parse(parsed);
+				const projectRoot = validated.worktree ?? validated.directory;
+				if (projectRoot != null && projectRoot !== '') {
+					projectMap.set(validated.id, projectRoot);
+				}
+			}
+			catch {
+				logger.debug('Failed to parse OpenCode project:', projectPath);
+			}
+		}
+	}
+	catch (error) {
+		logger.debug('Error reading OpenCode projects:', error);
+	}
+
+	return projectMap;
+}
+
+/**
+ * Load OpenCode session info
+ */
+function loadSessionInfo(sessionFilePath: string): OpenCodeSessionInfo | null {
+	try {
+		const content = readFileSync(sessionFilePath, 'utf-8');
+		const parsed = JSON.parse(content) as unknown;
+		return opencodeSessionInfoSchema.parse(parsed);
+	}
+	catch {
+		logger.debug('Failed to parse OpenCode session:', sessionFilePath);
+		return null;
+	}
+}
+
 
 
 /**
  * Load messages from OpenCode session
  */
-function loadMessages(sessionPath: string, sessionId: string): OpenCodeMessage[] {
-	const messagesPath = join(sessionPath, 'message', sessionId);
+function loadMessages(storagePath: string, sessionId: string): OpenCodeMessage[] {
+	const messagesPath = join(storagePath, 'message', sessionId);
 
 	if (!existsSync(messagesPath)) {
 		return [];
@@ -137,43 +191,29 @@ function loadMessages(sessionPath: string, sessionId: string): OpenCodeMessage[]
 }
 
 /**
- * Load parts (containing token data) from OpenCode session
+ * Load parts (containing token data) from OpenCode message
  */
-function loadParts(sessionPath: string, sessionId: string): Map<string, OpenCodePart[]> {
-	const partsPath = join(sessionPath, 'part', sessionId);
-	const partsByMessage = new Map<string, OpenCodePart[]>();
+function loadParts(storagePath: string, messageId: string): OpenCodePart[] {
+	const partsPath = join(storagePath, 'part', messageId);
+	const parts: OpenCodePart[] = [];
 
 	if (!existsSync(partsPath)) {
-		return partsByMessage;
+		return parts;
 	}
 
 	try {
-		const messageIds = readdirSync(partsPath);
+		const partFiles = readdirSync(partsPath).filter(f => f.endsWith('.json'));
 
-		for (const messageId of messageIds) {
-			const messagePartsPath = join(partsPath, messageId);
-			if (!existsSync(messagePartsPath)) {
-				continue;
+		for (const file of partFiles) {
+			const partPath = join(partsPath, file);
+			try {
+				const content = readFileSync(partPath, 'utf-8');
+				const parsed = JSON.parse(content) as unknown;
+				const validated = opencodePartSchema.parse(parsed);
+				parts.push(validated);
 			}
-
-			const parts: OpenCodePart[] = [];
-			const partFiles = readdirSync(messagePartsPath).filter(f => f.endsWith('.json'));
-
-			for (const file of partFiles) {
-				const partPath = join(messagePartsPath, file);
-				try {
-					const content = readFileSync(partPath, 'utf-8');
-					const parsed = JSON.parse(content) as unknown;
-					const validated = opencodePartSchema.parse(parsed);
-					parts.push(validated);
-				}
-				catch {
-					logger.debug('Failed to parse OpenCode part:', partPath);
-				}
-			}
-
-			if (parts.length > 0) {
-				partsByMessage.set(messageId, parts);
+			catch {
+				logger.debug('Failed to parse OpenCode part:', partPath);
 			}
 		}
 	}
@@ -181,7 +221,7 @@ function loadParts(sessionPath: string, sessionId: string): Map<string, OpenCode
 		logger.debug('Error reading OpenCode parts:', error);
 	}
 
-	return partsByMessage;
+	return parts;
 }
 
 /**
@@ -227,94 +267,137 @@ function aggregateTokensFromParts(parts: OpenCodePart[]): OpenCodeUsageEntry['to
 	return tokens;
 }
 
+function extractTokensFromMessage(message: OpenCodeMessage): OpenCodeUsageEntry['tokens'] | null {
+	if (message.tokens == null) {
+		return null;
+	}
+
+	const tokens: OpenCodeUsageEntry['tokens'] = {
+		input: message.tokens.input ?? 0,
+		output: message.tokens.output ?? 0,
+	};
+
+	const cacheRead = message.tokens.cache?.read ?? 0;
+	const cacheWrite = message.tokens.cache?.write ?? 0;
+	if (cacheRead > 0 || cacheWrite > 0) {
+		tokens.cache = {
+			read: cacheRead,
+			write: cacheWrite,
+		};
+	}
+
+	if ((message.tokens.reasoning ?? 0) > 0) {
+		tokens.reasoning = message.tokens.reasoning;
+	}
+
+	return tokens;
+}
+
 /**
- * Load OpenCode usage data from a project
+ * Load OpenCode usage data from storage directory
  */
-function loadProjectData(projectPath: string): OpenCodeUsageEntry[] {
+function loadStorageData(storagePath: string): OpenCodeUsageEntry[] {
 	const entries: OpenCodeUsageEntry[] = [];
-	const encodedProjectName = projectPath.split('/').pop() ?? '';
-	const decodedProjectPath = decodeProjectPath(encodedProjectName);
-	const storagePath = join(projectPath, 'storage', 'session');
+	const projectMap = loadProjectMap(storagePath);
+	const sessionsPath = join(storagePath, 'session');
 
-	if (!existsSync(storagePath)) {
+	if (!existsSync(sessionsPath)) {
 		return entries;
 	}
 
-	// Load session info to get list of sessions
-	const infoPath = join(storagePath, 'info');
-	if (!existsSync(infoPath)) {
+	let projectIds: string[] = [];
+	try {
+		projectIds = readdirSync(sessionsPath);
+	}
+	catch (error) {
+		logger.debug('Error reading OpenCode sessions:', error);
 		return entries;
 	}
 
-	const sessionFiles = readdirSync(infoPath).filter(f => f.endsWith('.json'));
+	for (const projectId of projectIds) {
+		const projectSessionsPath = join(sessionsPath, projectId);
+		if (!existsSync(projectSessionsPath)) {
+			continue;
+		}
 
-	for (const sessionFile of sessionFiles) {
-		const sessionId = sessionFile.replace('.json', '');
+		let sessionFiles: string[] = [];
+		try {
+			sessionFiles = readdirSync(projectSessionsPath).filter(f => f.endsWith('.json'));
+		}
+		catch (error) {
+			logger.debug('Error reading OpenCode session directory:', projectSessionsPath, error);
+			continue;
+		}
 
-		// Load messages and parts for this session
-		const messages = loadMessages(storagePath, sessionId);
-		const partsByMessage = loadParts(storagePath, sessionId);
+		for (const sessionFile of sessionFiles) {
+			const sessionFilePath = join(projectSessionsPath, sessionFile);
+			const sessionInfo = loadSessionInfo(sessionFilePath);
+			const sessionId = sessionInfo?.id ?? sessionFile.replace('.json', '');
+			const projectKey = sessionInfo?.projectID ?? projectId;
+			const sessionProjectPath = sessionInfo?.directory ?? projectMap.get(projectKey);
 
-		// Process each message with parts
-		for (const message of messages) {
-			const parts = partsByMessage.get(message.id);
-			if (parts == null || parts.length === 0) {
-				continue;
-			}
+			const messages = loadMessages(storagePath, sessionId);
+			for (const message of messages) {
+				const parts = loadParts(storagePath, message.id);
+				const stepFinishParts = parts.filter(p => p.type === 'step-finish' && p.tokens != null);
+				const primaryPart = stepFinishParts[0];
 
-			// Find step-finish parts with token data
-			const stepFinishParts = parts.filter(p => p.type === 'step-finish' && p.tokens != null);
-			if (stepFinishParts.length === 0) {
-				continue;
-			}
-
-			// Use the first step-finish part for metadata
-			const primaryPart = stepFinishParts[0];
-			if (primaryPart == null) {
-				continue;
-			}
-
-			// Aggregate tokens from all parts
-			const tokens = aggregateTokensFromParts(parts);
-
-			// Calculate total cost from all parts
-			// Cost is per-part; leave undefined when no parts report cost
-			let totalCost: number | undefined = undefined;
-			for (const part of stepFinishParts) {
-				if (part.cost != null) {
-					if (totalCost == null) totalCost = 0;
-					totalCost += part.cost;
+				const tokens = stepFinishParts.length > 0
+					? aggregateTokensFromParts(parts)
+					: extractTokensFromMessage(message);
+				if (tokens == null) {
+					continue;
 				}
+
+				let totalCost: number | undefined = undefined;
+				for (const part of stepFinishParts) {
+					if (part.cost != null) {
+						if (totalCost == null) totalCost = 0;
+						totalCost += part.cost;
+					}
+				}
+				if (totalCost == null && message.cost != null) {
+					totalCost = message.cost;
+				}
+
+				const timestampMs = message.time?.created ?? message.time?.completed ?? 0;
+				if (timestampMs === 0) {
+					continue;
+				}
+
+				const modelFromMessage = message.model;
+				const modelRaw = message.modelID
+					?? (typeof modelFromMessage === 'string' ? modelFromMessage : modelFromMessage?.modelID)
+					?? primaryPart?.modelID;
+				const normalizedModel = normalizeModelId(modelRaw);
+				if (normalizedModel == null || normalizedModel === 'unknown' || !normalizedModel.includes('claude')) {
+					continue;
+				}
+
+				const provider = message.providerID
+					?? (typeof modelFromMessage === 'object' ? modelFromMessage.providerID : undefined)
+					?? primaryPart?.providerID
+					?? message.provider;
+
+				const projectPath = message.path?.root
+					?? message.path?.cwd
+					?? sessionProjectPath
+					?? projectMap.get(projectId)
+					?? projectKey;
+
+				entries.push({
+					sessionId,
+					projectPath,
+					encodedProjectPath: projectKey,
+					timestamp: new Date(timestampMs),
+					model: modelRaw ?? 'unknown',
+					provider,
+					tokens,
+					cost: totalCost,
+					messageId: message.id,
+					type: message.role,
+				});
 			}
-
-			// Use message timestamp (messages have proper timestamps, parts don't)
-			const timestampMs = message.time?.created ?? message.time?.completed ?? 0;
-			if (timestampMs === 0) {
-				continue;
-			}
-
-			// Skip entries without valid model information (non-Claude models or unknown)
-			const modelRaw = message.modelID ?? primaryPart.modelID ?? message.model;
-			const normalizedModel = normalizeModelId(modelRaw);
-			if (normalizedModel == null || normalizedModel === 'unknown' || !normalizedModel.includes('claude')) {
-				continue;
-			}
-
-			// Create usage entry
-			const entry: OpenCodeUsageEntry = {
-				sessionId,
-				projectPath: decodedProjectPath,
-				encodedProjectPath: encodedProjectName,
-				timestamp: new Date(timestampMs),
-				model: modelRaw ?? 'unknown',
-				provider: message.providerID ?? primaryPart.providerID ?? message.provider,
-				tokens,
-				cost: totalCost,
-				messageId: message.id,
-				type: message.role,
-			};
-
-			entries.push(entry);
 		}
 	}
 
@@ -330,22 +413,18 @@ export function loadOpenCodeData(openCodePath?: string, suppressLogs = false): O
 	const allEntries: OpenCodeUsageEntry[] = [];
 
 	for (const dir of directories) {
-		const projectsPath = join(dir, OPENCODE_PROJECTS_DIR_NAME);
-		if (!existsSync(projectsPath)) {
-			logger.debug('OpenCode projects directory not found:', projectsPath);
+		const storagePath = join(dir, OPENCODE_STORAGE_DIR_NAME);
+		if (!existsSync(storagePath)) {
+			logger.debug('OpenCode storage directory not found:', storagePath);
 			continue;
 		}
 
 		try {
-			const projects = readdirSync(projectsPath);
-			for (const project of projects) {
-				const projectPath = join(projectsPath, project);
-				const entries = loadProjectData(projectPath);
-				allEntries.push(...entries);
-			}
+			const entries = loadStorageData(storagePath);
+			allEntries.push(...entries);
 		}
 		catch (error) {
-			logger.warn('Error reading OpenCode projects:', error);
+			logger.warn('Error reading OpenCode storage:', error);
 		}
 	}
 
@@ -356,4 +435,3 @@ export function loadOpenCodeData(openCodePath?: string, suppressLogs = false): O
 }
 
 // In-source tests
-

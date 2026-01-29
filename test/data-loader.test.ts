@@ -285,7 +285,10 @@ describe('Weekly grouping functionality', () => {
 			});
 
 			const weeklyResult = await loadWeeklyUsageData({ claudePath: fixture.path });
-			const unifiedWeeklyResult = await loadUnifiedWeeklyUsageData({ claudePath: fixture.path });
+			const unifiedWeeklyResult = await loadUnifiedWeeklyUsageData({
+				claudePath: fixture.path,
+				sources: ['claude'],
+			});
 
 			expect(Array.isArray(weeklyResult)).toBe(true);
 			expect(Array.isArray(unifiedWeeklyResult)).toBe(true);
