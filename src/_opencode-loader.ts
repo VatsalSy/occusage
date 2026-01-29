@@ -1,7 +1,8 @@
 import type { OpenCodeMessage, OpenCodePart, OpenCodeSessionInfo, OpenCodeUsageEntry } from './_opencode-types.ts';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
+import { z } from 'zod';
 import {
 	CLAUDE_PROJECTS_DIR_NAME,
 	DEFAULT_OPENCODE_DATA_PATH,
@@ -324,6 +325,31 @@ function extractTokensFromMessage(message: OpenCodeMessage): OpenCodeUsageEntry[
  */
 function loadLegacyData(projectsPath: string): OpenCodeUsageEntry[] {
 	const entries: OpenCodeUsageEntry[] = [];
+
+	const legacyUsageTokensSchema = z.object({
+		input_tokens: z.number(),
+		output_tokens: z.number(),
+		cache_creation_input_tokens: z.number().optional(),
+		cache_read_input_tokens: z.number().optional(),
+	});
+
+	const legacyJsonlSchema = z.object({
+		timestamp: z.union([z.string(), z.number()]),
+		message: z.object({
+			model: z.string().optional(),
+			usage: legacyUsageTokensSchema.optional(),
+			id: z.string().optional(),
+			role: z.enum(['user', 'assistant', 'system']).optional(),
+		}).optional(),
+		model: z.string().optional(),
+		usage: legacyUsageTokensSchema.optional(),
+		costUSD: z.number().optional(),
+		provider: z.string().optional(),
+		messageId: z.string().optional(),
+		role: z.enum(['user', 'assistant', 'system']).optional(),
+	}).refine((data) => data.usage != null || data.message?.usage != null, {
+		message: 'Legacy OpenCode JSONL entry is missing usage data',
+	});
 	
 	if (!existsSync(projectsPath)) {
 		return entries;
@@ -337,7 +363,7 @@ function loadLegacyData(projectsPath: string): OpenCodeUsageEntry[] {
 			
 			// Skip if not a directory
 			try {
-				const stat = require('node:fs').statSync(projectDirPath);
+				const stat = statSync(projectDirPath);
 				if (!stat.isDirectory()) {
 					continue;
 				}
@@ -362,17 +388,24 @@ function loadLegacyData(projectsPath: string): OpenCodeUsageEntry[] {
 					for (const line of lines) {
 						try {
 							const parsed = JSON.parse(line) as unknown;
-							
+							const validated = legacyJsonlSchema.safeParse(parsed);
+							if (!validated.success) {
+								logger.debug('Failed to validate legacy OpenCode JSONL line:', validated.error);
+								continue;
+							}
+
 							// Expected format similar to Claude Code JSONL:
 							// { timestamp, message: { model, usage: { input_tokens, output_tokens, ... } }, costUSD?, ... }
-							const timestamp = (parsed as any)?.timestamp;
-							const message = (parsed as any)?.message;
-							const model = (parsed as any)?.message?.model ?? (parsed as any)?.model;
-							const usage = (parsed as any)?.message?.usage ?? (parsed as any)?.usage;
-							const costUSD = (parsed as any)?.costUSD;
-							const messageId = (parsed as any)?.message?.id ?? (parsed as any)?.messageId;
+							const data = validated.data;
+							const timestamp = data.timestamp;
+							const usage = data.message?.usage ?? data.usage;
+							const model = data.message?.model ?? data.model;
+							const costUSD = data.costUSD;
+							const messageId = data.message?.id ?? data.messageId;
+							const provider = data.provider;
+							const type = data.message?.role ?? data.role;
 							
-							if (timestamp == null || usage == null) {
+							if (usage == null) {
 								continue;
 							}
 							
@@ -401,11 +434,11 @@ function loadLegacyData(projectsPath: string): OpenCodeUsageEntry[] {
 								encodedProjectPath: encodedProjectDir,
 								timestamp: new Date(timestamp),
 								model: model ?? 'unknown',
-								provider: (parsed as any)?.provider,
+								provider,
 								tokens,
 								cost: costUSD,
 								messageId: messageId,
-								type: (parsed as any)?.message?.role ?? (parsed as any)?.role,
+								type: type ?? 'assistant',
 							});
 						} catch (err) {
 							logger.debug('Failed to parse legacy OpenCode JSONL line:', err);
@@ -524,11 +557,12 @@ function loadStorageData(storagePath: string): OpenCodeUsageEntry[] {
 				}
 				
 				const projectPath = resolvedProjectPath;
+				const encodedProjectPath = encodeProjectPath(projectPath);
 
 				entries.push({
 					sessionId,
 					projectPath,
-					encodedProjectPath: projectKey,
+					encodedProjectPath,
 					timestamp: new Date(timestampMs),
 					model: modelRaw ?? 'unknown',
 					provider,

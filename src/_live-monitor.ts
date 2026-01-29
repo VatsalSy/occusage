@@ -220,7 +220,8 @@ export class LiveMonitor implements Disposable {
 				// Create a unique hash for this OpenCode entry
 				// Include projectPath or encodedProjectPath to reduce collisions between projects
 				const projectIdentifier = entry.projectPath ?? entry.encodedProjectPath ?? 'unknown-project';
-				const entryHash = `opencode-${projectIdentifier}-${entry.timestamp.toISOString()}-${entry.model}-${entry.tokens.input}-${entry.tokens.output}`;
+				const entryIdentity = entry.messageId ?? entry.sessionId ?? 'no-id';
+				const entryHash = `opencode-${projectIdentifier}-${entry.timestamp.toISOString()}-${entry.model}-${entry.tokens.input}-${entry.tokens.output}-${entryIdentity}`;
 
 				// Skip if we've already processed this entry
 				if (this.openCodeHashes.has(entryHash)) {
@@ -318,4 +319,3 @@ export class LiveMonitor implements Disposable {
 		// Also don't clear cachedActiveBlock to prevent flickering
 	}
 }
-
