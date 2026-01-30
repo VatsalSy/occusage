@@ -264,16 +264,19 @@ export async function loadCodexData(codexHome?: string, suppressLogs = false): P
 				absolute: true,
 			}).catch(() => []);
 
-			for (const file of files) {
-				try {
-					const entries = await parseCodexFile(file);
-					allEntries.push(...entries);
-				} catch (error) {
-					if (!suppressLogs) {
-						logger.debug('Failed to parse Codex rollout file:', file, error);
-					}
+		const parsePromises = files.map(async (file) => {
+			try {
+				return await parseCodexFile(file);
+			} catch (error) {
+				if (!suppressLogs) {
+					logger.debug('Failed to parse Codex rollout file:', file, error);
 				}
+				return [];
 			}
+		});
+
+		const results = await Promise.all(parsePromises);
+		allEntries.push(...results.flat());
 		}
 	}
 

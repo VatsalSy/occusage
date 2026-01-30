@@ -27,6 +27,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { toArray } from '@antfu/utils';
+// Helper function to check if error has a code property
+function isErrWithCode(error: unknown): error is { code?: string } {
+	return typeof error === 'object' && error !== null && 'code' in error;
+}
 // Helper function to mark unreachable code
 function unreachable(_value: never): never {
 	throw new Error('Unreachable code reached');
@@ -2082,7 +2086,7 @@ export async function loadSessionBlockData(
 		catch (error) {
 			// Differentiate between missing directory and other errors
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			const errorCode = (error as any)?.code;
+			const errorCode = isErrWithCode(error) ? error.code : undefined;
 			
 			if (errorCode === 'ENOENT' || errorMessage.includes('no such file or directory')) {
 				// Missing OpenCode directory is expected and not an error
@@ -2136,7 +2140,7 @@ export async function loadSessionBlockData(
 		}
 		catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			const errorCode = (error as any)?.code;
+			const errorCode = isErrWithCode(error) ? error.code : undefined;
 
 			if (errorCode === 'ENOENT' || errorMessage.includes('no such file or directory')) {
 				logger.debug(`Codex directory not found at ${options?.codexPath ?? 'default location'} - skipping Codex data`);
