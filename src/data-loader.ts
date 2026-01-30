@@ -1587,7 +1587,7 @@ export async function loadUnifiedSessionData(
 		const unifiedSessionId = entry.source === 'opencode'
 			? `${entry.projectPath.split('/').pop()}-${entry.sessionId}` // Use last part of project path + session
 			: entry.source === 'codex'
-				? `codex-${entry.sessionId}`
+				? `codex-${extractProjectName(entry.projectPath)}-${entry.sessionId}` // Project-scoped to avoid collisions
 				: entry.sessionId; // Claude uses sessionId directly
 
 		const existing = sessionMap.get(unifiedSessionId);

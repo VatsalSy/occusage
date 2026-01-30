@@ -6,7 +6,8 @@ import {
 	loadMonthlyUsageData,
 	loadSessionData,
 	loadWeeklyUsageData,
-	loadUnifiedWeeklyUsageData
+	loadUnifiedWeeklyUsageData,
+	loadUnifiedSessionData
 } from '../src/data-loader.ts';
 
 describe('formatDate', () => {
@@ -335,5 +336,165 @@ describe('Weekly grouping functionality', () => {
 				expect(resultWithoutStartOfWeek[0].week).toBe('2024-01-14');
 			}
 		});
+	});
+});
+
+describe('Codex session ID collision prevention', () => {
+	const createCodexRolloutFile = (sessionId: string, projectPath: string, inputTokens: number, outputTokens: number) => {
+		return [
+			JSON.stringify({
+				timestamp: '2024-01-01T12:00:00.000Z',
+				type: 'session_meta',
+				payload: {
+					id: sessionId,
+					cwd: projectPath,
+					model_provider: 'openai',
+				},
+			}),
+			JSON.stringify({
+				timestamp: '2024-01-01T12:00:01.000Z',
+				type: 'turn_context',
+				payload: {
+					cwd: projectPath,
+					model: 'gpt-4o',
+				},
+			}),
+			JSON.stringify({
+				timestamp: '2024-01-01T12:00:02.000Z',
+				type: 'event_msg',
+				payload: {
+					type: 'token_count',
+					info: {
+						total_token_usage: {
+							input_tokens: inputTokens,
+							output_tokens: outputTokens,
+						},
+						last_token_usage: {
+							input_tokens: inputTokens,
+							output_tokens: outputTokens,
+						},
+					},
+				},
+			}),
+		].join('\n');
+	};
+
+	it('should create distinct session IDs for Codex entries from different projects', async () => {
+		const { createFixture } = await import('fs-fixture');
+		const sessionId = 'shared-session-123';
+		await using fixture = await createFixture({
+			// Codex project 1
+			[`sessions/project1/rollout-2024-01-01-${sessionId}.jsonl`]: createCodexRolloutFile(
+				sessionId,
+				'/Users/test/project1',
+				100,
+				50
+			),
+			// Codex project 2 - same sessionId but different project
+			[`sessions/project2/rollout-2024-01-01-${sessionId}.jsonl`]: createCodexRolloutFile(
+				sessionId,
+				'/Users/test/project2',
+				200,
+				100
+			),
+		});
+
+		const result = await loadUnifiedSessionData({
+			codexPath: fixture.path,
+			sources: ['codex'],
+			mode: 'display',
+		});
+
+		expect(Array.isArray(result)).toBe(true);
+		// Should have 2 distinct sessions, not 1 merged session
+		expect(result.length).toBe(2);
+		
+		// Verify the sessions have different IDs (project-scoped)
+		const sessionIds = result.map(s => s.sessionId);
+		const uniqueSessionIds = new Set(sessionIds);
+		expect(uniqueSessionIds.size).toBe(2);
+		
+		// Verify each session has the expected token counts (not merged)
+		const session1 = result.find(s => s.inputTokens === 100);
+		const session2 = result.find(s => s.inputTokens === 200);
+		
+		expect(session1).toBeDefined();
+		expect(session2).toBeDefined();
+		expect(session1?.outputTokens).toBe(50);
+		expect(session2?.outputTokens).toBe(100);
+	});
+
+	it('should merge Codex entries from the same project and session', async () => {
+		const { createFixture } = await import('fs-fixture');
+		const sessionId = 'shared-session-456';
+		await using fixture = await createFixture({
+			[`sessions/project1/rollout-2024-01-01-${sessionId}.jsonl`]: [
+				JSON.stringify({
+					timestamp: '2024-01-01T12:00:00.000Z',
+					type: 'session_meta',
+					payload: {
+						id: sessionId,
+						cwd: '/Users/test/project1',
+						model_provider: 'openai',
+					},
+				}),
+				JSON.stringify({
+					timestamp: '2024-01-01T12:00:01.000Z',
+					type: 'turn_context',
+					payload: {
+						cwd: '/Users/test/project1',
+						model: 'gpt-4o',
+					},
+				}),
+				JSON.stringify({
+					timestamp: '2024-01-01T12:00:02.000Z',
+					type: 'event_msg',
+					payload: {
+						type: 'token_count',
+						info: {
+							total_token_usage: {
+								input_tokens: 100,
+								output_tokens: 50,
+							},
+							last_token_usage: {
+								input_tokens: 100,
+								output_tokens: 50,
+							},
+						},
+					},
+				}),
+				JSON.stringify({
+					timestamp: '2024-01-01T12:01:00.000Z',
+					type: 'event_msg',
+					payload: {
+						type: 'token_count',
+						info: {
+							total_token_usage: {
+								input_tokens: 250,
+								output_tokens: 125,
+							},
+							last_token_usage: {
+								input_tokens: 150,
+								output_tokens: 75,
+							},
+						},
+					},
+				}),
+			].join('\n'),
+		});
+
+		const result = await loadUnifiedSessionData({
+			codexPath: fixture.path,
+			sources: ['codex'],
+			mode: 'display',
+		});
+
+		expect(Array.isArray(result)).toBe(true);
+		// Should have 1 merged session
+		expect(result.length).toBe(1);
+		
+		// Verify tokens are summed (100 + 150 = 250, 50 + 75 = 125)
+		expect(result[0].inputTokens).toBe(250);
+		expect(result[0].outputTokens).toBe(125);
 	});
 });
