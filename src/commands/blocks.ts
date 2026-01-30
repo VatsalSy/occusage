@@ -12,7 +12,7 @@ import {
 	projectBlockUsage,
 
 } from '../_session-blocks.ts';
-import { sharedCommandConfig } from '../_shared-args.ts';
+import { resolveModelFamilyFilter, sharedCommandConfig } from '../_shared-args.ts';
 import { getTotalTokens } from '../_token-utils.ts';
 import { aggregateModelBreakdowns, formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import type { ModelName } from '../_types.ts';
@@ -185,6 +185,11 @@ export const blocksCommand = define({
 			logger.level = 0;
 		}
 
+		const { modelFamily, warning } = resolveModelFamilyFilter(ctx.values);
+		if (warning != null && !useJson) {
+			logger.warn(warning);
+		}
+
 		// Validate session length
 		if (ctx.values.sessionLength <= 0) {
 			logger.error('Session length must be a positive number');
@@ -200,6 +205,7 @@ export const blocksCommand = define({
 			sessionDurationHours: ctx.values.sessionLength,
 			timezone: ctx.values.timezone,
 			locale: ctx.values.locale,
+			modelFamily,
 		});
 
 		if (blocks.length === 0) {
@@ -207,7 +213,7 @@ export const blocksCommand = define({
 				log(JSON.stringify({ blocks: [] }));
 			}
 			else {
-				logger.warn('No Claude usage data found.');
+				logger.warn('No usage data found.');
 			}
 			process.exit(0);
 		}
@@ -282,6 +288,7 @@ export const blocksCommand = define({
 				sessionDurationHours: ctx.values.sessionLength,
 				mode: ctx.values.mode,
 				order: ctx.values.order,
+				modelFamily,
 			});
 			return; // Exit early, don't show table
 		}
@@ -464,7 +471,7 @@ export const blocksCommand = define({
 			}
 			else {
 				// Table view for multiple blocks
-				logger.box('Open+Claude Code Token Usage Report - Session Blocks');
+				logger.box('Claude + OpenCode + Codex Usage Report - Session Blocks');
 
 				// Note: actualTokenLimit is calculated in projections section when needed
 

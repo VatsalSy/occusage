@@ -173,6 +173,36 @@ describe('OpenCode storage loader', () => {
 		expect(result[0]?.tokens.cache?.write).toBe(150);
 	});
 
+	it('loads usage entries from project storage layout', async () => {
+		const { createFixture } = await import('fs-fixture');
+		await using fixture = await createFixture({
+			'project/sample/storage/session/proj_abc/ses_7.json': JSON.stringify({
+				id: 'ses_7',
+				projectID: 'proj_abc',
+				directory: '/Users/test/project',
+			}),
+			'project/sample/storage/message/ses_7/msg_7.json': JSON.stringify({
+				id: 'msg_7',
+				sessionID: 'ses_7',
+				role: 'assistant',
+				time: {
+					created: 1700000000000,
+				},
+				modelID: 'claude-sonnet-4-20250514',
+				tokens: {
+					input: 12,
+					output: 6,
+				},
+			}),
+		});
+
+		const result = loadOpenCodeData(fixture.path, true);
+		expect(result).toHaveLength(1);
+		expect(result[0]?.projectPath).toBe('/Users/test/project');
+		expect(result[0]?.tokens.input).toBe(12);
+		expect(result[0]?.tokens.output).toBe(6);
+	});
+
 	it('skips entries with missing timestamp', async () => {
 		const { createFixture } = await import('fs-fixture');
 		await using fixture = await createFixture({
@@ -201,7 +231,7 @@ describe('OpenCode storage loader', () => {
 		expect(result).toHaveLength(0);
 	});
 
-	it('skips entries with non-Claude models', async () => {
+	it('loads entries with OpenAI models', async () => {
 		const { createFixture } = await import('fs-fixture');
 		await using fixture = await createFixture({
 			'storage/project/proj_123.json': JSON.stringify({
@@ -228,7 +258,8 @@ describe('OpenCode storage loader', () => {
 		});
 
 		const result = loadOpenCodeData(fixture.path, true);
-		expect(result).toHaveLength(0);
+		expect(result).toHaveLength(1);
+		expect(result[0]?.model).toBe('gpt-4');
 	});
 
 	it('skips entries with null model', async () => {

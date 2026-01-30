@@ -22,7 +22,7 @@ function floorToHour(timestamp: Date): Date {
  * Represents a single usage data entry loaded from JSONL files
  */
 export type LoadedUsageEntry = {
-	source: 'claude' | 'opencode';
+	source: 'claude' | 'opencode' | 'codex';
 	timestamp: Date;
 	usage: {
 		inputTokens: number;
@@ -61,7 +61,7 @@ export type SessionBlock = {
 	tokenCounts: TokenCounts;
 	costUSD: number;
 	models: string[];
-	sources: Array<'claude' | 'opencode'>; // Track which sources contributed to this block
+	sources: Array<'claude' | 'opencode' | 'codex'>; // Track which sources contributed to this block
 	usageLimitResetTime?: Date; // Claude API usage limit reset time
 };
 
@@ -180,7 +180,7 @@ function createBlock(startTime: Date, entries: LoadedUsageEntry[], now: Date, se
 
 	let costUSD = 0;
 	const models: string[] = [];
-	const sources: Array<'claude' | 'opencode'> = [];
+	const sources: Array<'claude' | 'opencode' | 'codex'> = [];
 	let usageLimitResetTime: Date | undefined;
 
 	for (const entry of entries) {
@@ -348,4 +348,3 @@ export function filterRecentBlocks(blocks: SessionBlock[], days: number = DEFAUL
 		return block.startTime >= cutoffTime || block.isActive;
 	});
 }
-

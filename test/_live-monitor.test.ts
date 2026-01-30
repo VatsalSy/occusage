@@ -34,6 +34,7 @@ describe('LiveMonitor', () => {
 			mode: 'display',
 			order: 'desc',
 			includeOpenCode: false,
+			includeCodex: false,
 		});
 	});
 
@@ -79,6 +80,7 @@ describe('LiveMonitor', () => {
 			mode: 'display',
 			order: 'desc',
 			includeOpenCode: false,
+			includeCodex: false,
 		});
 
 		const activeBlock = await emptyMonitor.getActiveBlock();

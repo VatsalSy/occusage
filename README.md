@@ -5,19 +5,20 @@
     <a href="https://github.com/VatsalSy/occusage/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" /></a>
 </p>
 
-> Analyze your OpenCode and Claude Code token usage and costs from local JSONL files — incredibly fast and informative!
+> Analyze your OpenCode, Codex, and Claude Code token usage and costs from local JSONL files — incredibly fast and informative!
 
 ## 🚀 What's New
 
-**occusage** (OpenCode/Claude Code Usage) is an enhanced fork of the original [ccusage](https://github.com/ryoppippi/ccusage) project by [@ryoppippi](https://github.com/ryoppippi). This fork adds comprehensive support for **OpenCode** - SST's new AI coding assistant that shares the same powerful Claude models and API infrastructure as Claude Code.
+**occusage** (OpenCode/Claude Code Usage) is an enhanced fork of the original [ccusage](https://github.com/ryoppippi/ccusage) project by [@ryoppippi](https://github.com/ryoppippi). This fork adds comprehensive support for **OpenCode** and **Codex** usage alongside Claude Code so you can track both Claude and OpenAI models in one place.
 
 ### Key Enhancements
 
 - **Full OpenCode Support**: Complete integration with OpenCode's usage tracking
-- **Dual Source Tracking**: Distinguish between OpenCode `[O]` and Claude Code `[C]` usage
-- **Unified Reporting**: Combined usage statistics across both platforms
+- **Codex Support**: Track OpenAI Codex CLI usage from local rollout logs
+- **Multi-Source Tracking**: Distinguish between OpenCode `[O]`, Claude Code `[C]`, and Codex `[X]` usage
+- **Unified Reporting**: Combined usage statistics across all supported sources
 - **Advanced Features**: Project-based reporting, live monitoring, and 5-hour billing blocks
-- **Model Support**: Track usage for Claude 4 Opus and Sonnet models
+- **Model Support**: Track Claude 4 Opus/Sonnet plus OpenAI GPT and reasoning models
 
 ## 📦 Installation (Bun-only)
 
@@ -225,25 +226,28 @@ bun run start project --json
 
 ### Advanced Capabilities
 - **🔴 Live Monitoring**: Real-time usage dashboard with burn rate calculations
-- **🤖 Model Tracking**: Distinguish between Opus and Sonnet models
+- **🤖 Model Tracking**: Distinguish Claude Opus/Sonnet and OpenAI GPT/reasoning models
 - **💰 Cost Analysis**: Accurate USD cost calculations using LiteLLM pricing
 - **🔄 Cache Metrics**: Track cache creation and read tokens
 - **📱 Responsive Display**: Automatic layout adjustment for terminal width
 - **🌐 Offline Mode**: Use cached pricing data without network access
 - **🎨 Beautiful Output**: Color-coded tables with smart formatting
 
-### OpenCode & Claude Code Integration
-- **[O] OpenCode**: Track usage from `~/.config/opencode/projects/`
+### OpenCode, Claude Code & Codex Integration
+
+- **[O] OpenCode**: Track usage from `~/.local/share/opencode/` (or `OPENCODE_DATA_DIR`)
 - **[C] Claude Code**: Track usage from `~/.claude/projects/` and `~/.config/claude/projects/`
-- **Combined Totals**: Unified reporting across both platforms
+- **[X] Codex**: Track usage from `~/.codex/` (or `CODEX_HOME`)
+- **Combined Totals**: Unified reporting across all sources
 - **Source Attribution**: Clear labeling of usage source
 
 ## 📈 Example Output
 
 ### Today's Usage Report
-```
+
+```text
 ╭──────────────────────────────────────────╮
-│  Open+Claude Code Token Usage Report - Today  │
+│  Claude + OpenCode + Codex Usage Report - Today  │
 ╰──────────────────────────────────────────╯
 
 ┌──────────┬────────────────────┬───────────┬───────────┬───────────────┬──────────────┬───────────────┬─────────────┐
@@ -283,9 +287,10 @@ Real-time updates showing:
 
 ### Environment Variables
 ```bash
-# Custom Claude/OpenCode data directories
+# Custom Claude/OpenCode/Codex data directories
 export CLAUDE_CONFIG_DIR="/path/to/claude"
-export OPENCODE_CONFIG_DIR="/path/to/opencode"
+export OPENCODE_DATA_DIR="/path/to/opencode"
+export CODEX_HOME="/path/to/codex"
 
 # Multiple directories (comma-separated)
 export CLAUDE_CONFIG_DIR="/path1,/path2"
@@ -346,7 +351,7 @@ occusage/
 
 ## 🙏 Credits & Attribution
 
-This project is a fork of [ccusage](https://github.com/ryoppippi/ccusage) by [@ryoppippi](https://github.com/ryoppippi), with significant enhancements for OpenCode support.
+This project is a fork of [ccusage](https://github.com/ryoppippi/ccusage) by [@ryoppippi](https://github.com/ryoppippi), with significant enhancements for OpenCode and Codex support.
 
 ### Original Contributors
 - [@ryoppippi](https://github.com/ryoppippi) - Original creator of ccusage
@@ -354,16 +359,16 @@ This project is a fork of [ccusage](https://github.com/ryoppippi/ccusage) by [@r
 
 ### Fork History
 - Last commit from original project: `fa9f2110d035e8d5ce27cf1f1a05aae19aecdc6b`
-- Fork enhancements: OpenCode integration, project reporting, enhanced monitoring
+- Fork enhancements: OpenCode + Codex integration, project reporting, enhanced monitoring
 
 ### Why This Fork?
-While the original ccusage project excellently serves Claude Code users, the introduction of OpenCode created a need for:
-- Unified tracking across both OpenCode and Claude Code
+While the original ccusage project excellently serves Claude Code users, the introduction of OpenCode and Codex created a need for:
+- Unified tracking across OpenCode, Codex, and Claude Code
 - Distinction between usage sources
 - Advanced project-based analytics
 - Enhanced real-time monitoring capabilities
 
-This fork maintains full compatibility with the original while adding these essential features for OpenCode users.
+This fork maintains full compatibility with the original while adding these essential features for OpenCode and Codex users.
 
 ### Original Project Recognition
 - **Star the original**: https://github.com/ryoppippi/ccusage ⭐
@@ -416,5 +421,5 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 ---
 
 <p align="center">
-    Made with ❤️ for the OpenCode and Claude Code community
+    Made with ❤️ for the OpenCode, Codex, and Claude Code community
 </p>

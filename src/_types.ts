@@ -75,10 +75,20 @@ export type ProjectPath = z.infer<typeof projectPathSchema>;
 export type Version = z.infer<typeof versionSchema>;
 
 /**
+ * Supported model families for filtering
+ */
+export const MODEL_FAMILIES = ['claude', 'openai'] as const;
+
+export const modelFamilySchema = z.enum(MODEL_FAMILIES).brand<'ModelFamily'>();
+
+export type ModelFamily = z.infer<typeof modelFamilySchema>;
+
+/**
  * Helper functions to create branded values by parsing and validating input strings
  * These functions should be used when converting plain strings to branded types
  */
 export const createModelName = (value: string): ModelName => modelNameSchema.parse(value);
+export const createModelFamily = (value: string): ModelFamily => modelFamilySchema.parse(value);
 export const createSessionId = (value: string): SessionId => sessionIdSchema.parse(value);
 export const createRequestId = (value: string): RequestId => requestIdSchema.parse(value);
 export const createMessageId = (value: string): MessageId => messageIdSchema.parse(value);

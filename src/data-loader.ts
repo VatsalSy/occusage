@@ -10,6 +10,7 @@
 
 import type { IntRange, TupleToUnion } from 'type-fest';
 import type { WEEK_DAYS } from './_consts.ts';
+import type { CodexUsageEntry } from './_codex-types.ts';
 import type { OpenCodeUsageEntry } from './_opencode-types.ts';
 import type { LoadedUsageEntry, SessionBlock } from './_session-blocks.ts';
 import type {
@@ -17,6 +18,7 @@ import type {
 	Bucket,
 	CostMode,
 	ModelName,
+	ModelFamily,
 	SortOrder,
 	Version,
 	WeeklyDate,
@@ -38,6 +40,8 @@ import { glob } from 'tinyglobby';
 import { z } from 'zod';
 import { CLAUDE_CONFIG_DIR_ENV, CLAUDE_PROJECTS_DIR_NAME, DEFAULT_CLAUDE_CODE_PATH, DEFAULT_CLAUDE_CONFIG_PATH, USAGE_DATA_GLOB_PATTERN, USER_HOME_DIR } from './_consts.ts';
 import { loadOpenCodeData } from './_opencode-loader.ts';
+import { loadCodexData } from './_codex-loader.ts';
+import { matchesModelFamily } from './_model-utils.ts';
 import {
 	identifySessionBlocks,
 } from './_session-blocks.ts';
@@ -71,10 +75,10 @@ import {
 } from './pricing-fetcher.ts';
 
 /**
- * Common entry format for both Claude and OpenCode data
+ * Common entry format for Claude, OpenCode, and Codex data
  */
 type UnifiedUsageEntry = {
-	source: 'claude' | 'opencode';
+	source: 'claude' | 'opencode' | 'codex';
 	timestamp: string;
 	projectPath: string;
 	sessionId: string;
@@ -90,13 +94,14 @@ type UnifiedUsageEntry = {
 };
 
 /**
- * Loads unified usage data from both Claude and OpenCode sources
+ * Loads unified usage data from Claude, OpenCode, and Codex sources
  */
 
 async function _loadUnifiedUsageData(
 	options?: LoadOptions,
 ): Promise<UnifiedUsageEntry[]> {
-	const sources = options?.sources ?? ['claude', 'opencode'];
+	const sources = options?.sources ?? ['claude', 'opencode', 'codex'];
+	const modelFamily = options?.modelFamily;
 	const allEntries: UnifiedUsageEntry[] = [];
 
 	// Load Claude data if included
@@ -152,6 +157,9 @@ async function _loadUnifiedUsageData(
 						if (model === '<synthetic>' || model === 'unknown') {
 							continue;
 						}
+						if (!matchesModelFamily(model, undefined, modelFamily)) {
+							continue;
+						}
 
 						allEntries.push({
 							source: 'claude',
@@ -200,6 +208,9 @@ async function _loadUnifiedUsageData(
 			if (options?.project != null && !entry.projectPath.includes(options.project)) {
 				continue;
 			}
+			if (!matchesModelFamily(entry.model, entry.provider, modelFamily)) {
+				continue;
+			}
 
 			allEntries.push({
 				source: 'opencode',
@@ -211,6 +222,36 @@ async function _loadUnifiedUsageData(
 					input_tokens: entry.tokens.input,
 					output_tokens: entry.tokens.output,
 					cache_creation_input_tokens: entry.tokens.cache?.write ?? 0,
+					cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+				},
+				costUSD: entry.cost,
+			});
+		}
+	}
+
+	// Load Codex data if included
+	if (sources.includes('codex')) {
+		const codexEntries = await loadCodexData(options?.codexPath, true);
+
+		for (const entry of codexEntries) {
+			// Filter by project if specified
+			if (options?.project != null && !entry.projectPath.includes(options.project)) {
+				continue;
+			}
+			if (!matchesModelFamily(entry.model, entry.provider, modelFamily)) {
+				continue;
+			}
+
+			allEntries.push({
+				source: 'codex',
+				timestamp: entry.timestamp.toISOString(),
+				projectPath: entry.projectPath,
+				sessionId: entry.sessionId,
+				model: entry.model,
+				usage: {
+					input_tokens: entry.tokens.input,
+					output_tokens: entry.tokens.output,
+					cache_creation_input_tokens: 0,
 					cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
 				},
 				costUSD: entry.cost,
@@ -362,7 +403,7 @@ export type ModelBreakdown = z.infer<typeof modelBreakdownSchema>;
  * Zod schema for source-specific usage breakdown data
  */
 export const sourceBreakdownSchema = z.object({
-	source: z.enum(['claude', 'opencode']),
+	source: z.enum(['claude', 'opencode', 'codex']),
 	inputTokens: z.number(),
 	outputTokens: z.number(),
 	cacheCreationTokens: z.number(),
@@ -1041,6 +1082,33 @@ async function calculateCostForOpenCodeEntry(
 }
 
 /**
+ * Calculate cost for Codex usage entry
+ * @param entry - Codex usage entry
+ * @param mode - Cost calculation mode
+ * @param fetcher - Pricing fetcher instance
+ * @returns Calculated cost in USD
+ */
+async function calculateCostForCodexEntry(
+	entry: CodexUsageEntry,
+	mode: CostMode,
+	fetcher: PricingFetcher,
+): Promise<number> {
+	const tokens = {
+		input_tokens: entry.tokens.input,
+		output_tokens: entry.tokens.output,
+		cache_creation_input_tokens: 0,
+		cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+	};
+	return calculateCostGeneric(
+		entry.cost,
+		tokens,
+		entry.model,
+		mode,
+		fetcher,
+	);
+}
+
+/**
  * Get Claude Code usage limit expiration date
  * @param data - Usage data entry
  * @returns Usage limit expiration date
@@ -1109,6 +1177,7 @@ const DEFAULT_START_OF_WEEK: WeekDay = 'sunday';
 export type LoadOptions = {
 	claudePath?: string; // Custom path to Claude data directory
 	openCodePath?: string; // Custom path to OpenCode data directory (for testing)
+	codexPath?: string; // Custom path to Codex data directory (for testing)
 	mode?: CostMode; // Cost calculation mode
 	order?: SortOrder; // Sort order for dates
 	offline?: boolean; // Use offline mode for pricing
@@ -1121,7 +1190,8 @@ export type LoadOptions = {
 	startOfMonth?: number; // Start of month for monthly aggregation (1-31, defaults to 1)
 	timezone?: string; // Timezone for date grouping (e.g., 'UTC', 'America/New_York'). Defaults to system timezone
 	locale?: string; // Locale for date/time formatting (e.g., 'en-US', 'ja-JP'). Defaults to 'en-US'
-	sources?: Array<'claude' | 'opencode'>; // Filter by data sources (defaults to both)
+	sources?: Array<'claude' | 'opencode' | 'codex'>; // Filter by data sources (defaults to all)
+	modelFamily?: ModelFamily; // Filter by model family (claude or openai)
 } & DateFilter;
 
 /**
@@ -1478,7 +1548,7 @@ export async function loadSessionData(
 }
 
 /**
- * Unified session usage data loader that supports both Claude Code and OpenCode
+ * Unified session usage data loader that supports Claude Code, OpenCode, and Codex
  * Groups usage data by session/project identifier across both sources
  * @param options - Optional configuration for loading and filtering data
  * @returns Array of session usage summaries with source breakdowns sorted by last activity
@@ -1516,7 +1586,9 @@ export async function loadUnifiedSessionData(
 		// Create unified session identifier
 		const unifiedSessionId = entry.source === 'opencode'
 			? `${entry.projectPath.split('/').pop()}-${entry.sessionId}` // Use last part of project path + session
-			: entry.sessionId; // Claude uses sessionId directly
+			: entry.source === 'codex'
+				? `codex-${extractProjectName(entry.projectPath)}-${entry.sessionId}` // Project-scoped to avoid collisions
+				: entry.sessionId; // Claude uses sessionId directly
 
 		const existing = sessionMap.get(unifiedSessionId);
 		if (existing == null) {
@@ -1550,7 +1622,7 @@ export async function loadUnifiedSessionData(
 		const modelsUsed = new Set<string>();
 		const versions = new Set<string>();
 		const modelBreakdowns = new Map<string, ModelBreakdown>();
-		const sourceBreakdowns = new Map<'claude' | 'opencode', SourceBreakdown>();
+		const sourceBreakdowns = new Map<'claude' | 'opencode' | 'codex', SourceBreakdown>();
 
 		// Process each entry
 		for (const entry of entries) {
@@ -1786,7 +1858,7 @@ export async function loadBucketUsageData(
 		const modelBreakdowns = createModelBreakdowns(modelAggregates);
 
 		// Aggregate source breakdowns across all days
-		const sourceBreakdownsMap = new Map<'claude' | 'opencode', SourceBreakdown>();
+		const sourceBreakdownsMap = new Map<'claude' | 'opencode' | 'codex', SourceBreakdown>();
 		for (const daily of dailyEntries) {
 			for (const sourceBreakdown of daily.sourceBreakdowns) {
 				const existing = sourceBreakdownsMap.get(sourceBreakdown.source);
@@ -1863,8 +1935,9 @@ export async function loadBucketUsageData(
 export async function loadSessionBlockData(
 	options?: LoadOptions,
 ): Promise<SessionBlock[]> {
-	// Determine which sources to load (default to both)
-	const sources = options?.sources ?? ['claude', 'opencode'];
+	// Determine which sources to load (default to all)
+	const sources = options?.sources ?? ['claude', 'opencode', 'codex'];
+	const modelFamily = options?.modelFamily;
 	const allEntries: LoadedUsageEntry[] = [];
 
 	// Create a single PricingFetcher instance for both sources to avoid duplicate fetches
@@ -1937,6 +2010,9 @@ export async function loadSessionBlockData(
 						if (model === '<synthetic>' || model === 'unknown') {
 							continue;
 						}
+						if (!matchesModelFamily(model, undefined, modelFamily)) {
+							continue;
+						}
 
 						// Get Claude Code usage limit expiration date
 						const usageLimitResetTime = getUsageLimitResetTime(data);
@@ -1975,6 +2051,10 @@ export async function loadSessionBlockData(
 			for (const entry of openCodeEntries) {
 				// Filter by project if specified
 				if (options?.project != null && !entry.projectPath.includes(options.project)) {
+					continue;
+				}
+
+				if (!matchesModelFamily(entry.model, entry.provider, modelFamily)) {
 					continue;
 				}
 
@@ -2020,6 +2100,56 @@ export async function loadSessionBlockData(
 		}
 	}
 
+	// Load Codex data if included
+	if (sources.includes('codex')) {
+		try {
+			const codexEntries = await loadCodexData(options?.codexPath, true);
+
+			for (const entry of codexEntries) {
+				// Filter by project if specified
+				if (options?.project != null && !entry.projectPath.includes(options.project)) {
+					continue;
+				}
+				if (!matchesModelFamily(entry.model, entry.provider, modelFamily)) {
+					continue;
+				}
+
+				let calculatedCost = entry.cost ?? null;
+				if ((calculatedCost == null || calculatedCost === 0) && sharedFetcher != null) {
+					calculatedCost = await calculateCostForCodexEntry(entry, mode, sharedFetcher);
+				}
+
+				allEntries.push({
+					source: 'codex',
+					timestamp: entry.timestamp,
+					usage: {
+						inputTokens: entry.tokens.input,
+						outputTokens: entry.tokens.output,
+						cacheCreationInputTokens: 0,
+						cacheReadInputTokens: entry.tokens.cache?.read ?? 0,
+					},
+					costUSD: calculatedCost,
+					model: entry.model,
+					project: extractProjectName(entry.projectPath),
+				});
+			}
+		}
+		catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			const errorCode = (error as any)?.code;
+
+			if (errorCode === 'ENOENT' || errorMessage.includes('no such file or directory')) {
+				logger.debug(`Codex directory not found at ${options?.codexPath ?? 'default location'} - skipping Codex data`);
+			} else {
+				logger.error('Failed to load Codex data:', {
+					error: errorMessage,
+					stack: error instanceof Error ? error.stack : undefined,
+					codexPath: options?.codexPath ?? 'default location',
+				});
+			}
+		}
+	}
+
 	// Return empty if no entries from any source
 	if (allEntries.length === 0) {
 		return [];
@@ -2053,7 +2183,7 @@ export async function loadSessionBlockData(
 }
 
 /**
- * Unified daily usage data loader that supports both Claude Code and OpenCode
+ * Unified daily usage data loader that supports Claude Code, OpenCode, and Codex
  * Uses loadSessionBlockData internally and aggregates into daily summaries
  */
 export async function loadUnifiedDailyUsageData(
@@ -2081,7 +2211,7 @@ export async function loadUnifiedDailyUsageData(
 		totalCost: number;
 		modelsUsed: Set<string>;
 		modelBreakdowns: Map<string, ModelBreakdown>;
-		sourceBreakdowns: Map<'claude' | 'opencode', SourceBreakdown>;
+		sourceBreakdowns: Map<'claude' | 'opencode' | 'codex', SourceBreakdown>;
 		project?: string;
 	}>();
 
@@ -2186,7 +2316,7 @@ export async function loadUnifiedDailyUsageData(
 }
 
 /**
- * Unified monthly usage data loader that supports both Claude Code and OpenCode
+ * Unified monthly usage data loader that supports Claude Code, OpenCode, and Codex
  * Uses loadSessionBlockData internally and aggregates into monthly summaries
  */
 export async function loadUnifiedMonthlyUsageData(
@@ -2208,7 +2338,7 @@ export async function loadUnifiedMonthlyUsageData(
 		totalCost: number;
 		modelsUsed: Set<string>;
 		modelBreakdowns: Map<string, ModelBreakdown>;
-		sourceBreakdowns: Map<'claude' | 'opencode', SourceBreakdown>;
+		sourceBreakdowns: Map<'claude' | 'opencode' | 'codex', SourceBreakdown>;
 	}>();
 
 	// Helper function to get custom month key based on start day
@@ -2314,7 +2444,7 @@ export async function loadUnifiedMonthlyUsageData(
 }
 
 /**
- * Unified weekly usage data loader that supports both Claude Code and OpenCode
+ * Unified weekly usage data loader that supports Claude Code, OpenCode, and Codex
  * Uses loadSessionBlockData internally and aggregates into weekly summaries
  */
 export async function loadUnifiedWeeklyUsageData(
@@ -2339,7 +2469,7 @@ export async function loadUnifiedWeeklyUsageData(
 		totalCost: number;
 		modelsUsed: Set<string>;
 		modelBreakdowns: Map<string, ModelBreakdown>;
-		sourceBreakdowns: Map<'claude' | 'opencode', SourceBreakdown>;
+		sourceBreakdowns: Map<'claude' | 'opencode' | 'codex', SourceBreakdown>;
 	}>();
 
 	for (const block of blocks) {
@@ -2440,6 +2570,9 @@ function extractProjectFromEntry(entry: LoadedUsageEntry): string {
 	if (entry.source === 'opencode') {
 		return 'opencode-unknown';
 	}
+	if (entry.source === 'codex') {
+		return 'codex-unknown';
+	}
 	return 'claude-unknown';
 }
 
@@ -2485,7 +2618,7 @@ function extractProjectName(folderPath: string): string {
 }
 
 /**
- * Loads and aggregates usage data grouped by project
+ * Loads and aggregates usage data grouped by project across all sources
  */
 export async function loadUnifiedProjectData(
 	options?: LoadOptions,
@@ -2550,7 +2683,7 @@ export async function loadUnifiedProjectData(
 		const modelsUsed = new Set<string>();
 		const versions = new Set<string>();
 		const modelBreakdowns = new Map<string, ModelBreakdown>();
-		const sourceBreakdowns = new Map<'claude' | 'opencode', SourceBreakdown>();
+		const sourceBreakdowns = new Map<'claude' | 'opencode' | 'codex', SourceBreakdown>();
 
 		// Process each entry
 		for (const entry of entries) {
@@ -2639,4 +2772,3 @@ export const __testing__ = {
 	getDayNumber,
 	DEFAULT_START_OF_WEEK,
 };
-

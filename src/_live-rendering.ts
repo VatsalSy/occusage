@@ -8,7 +8,7 @@
 
 import type { SessionBlock } from './_session-blocks.ts';
 import type { TerminalManager } from './_terminal-utils.ts';
-import type { CostMode, SortOrder } from './_types.ts';
+import type { CostMode, ModelFamily, SortOrder } from './_types.ts';
 // Delay with AbortSignal support and proper cleanup
 const delay = (ms: number, options?: { signal?: AbortSignal }): Promise<void> => {
     return new Promise<void>((resolve, reject) => {
@@ -83,6 +83,9 @@ export type LiveMonitoringConfig = {
 	mode: CostMode;
 	order: SortOrder;
 	includeOpenCode?: boolean;
+	includeCodex?: boolean;
+	codexPath?: string;
+	modelFamily?: ModelFamily;
 };
 
 /**
@@ -477,6 +480,8 @@ export function renderLiveDisplay(terminal: TerminalManager, block: SessionBlock
 					return pc.blue('[C]');
 				case 'opencode':
 					return pc.green('[O]');
+				case 'codex':
+					return pc.magenta('[X]');
 				default:
 					return pc.gray('[?]');
 			}

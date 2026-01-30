@@ -3,7 +3,7 @@ import { Result } from '@praha/byethrow';
 import { define } from 'gunshi';
 import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
-import { sharedCommandConfig } from '../_shared-args.ts';
+import { resolveModelFamilyFilter, sharedCommandConfig } from '../_shared-args.ts';
 import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
@@ -32,6 +32,11 @@ export const projectCommand = define({
 		const useJson = ctx.values.json || ctx.values.jq != null;
 		if (useJson) {
 			logger.level = 0;
+		}
+
+		const { modelFamily, warning } = resolveModelFamilyFilter(ctx.values);
+		if (warning != null && !useJson) {
+			logger.warn(warning);
 		}
 
 		// Calculate current week boundaries if --full is not specified
@@ -71,6 +76,7 @@ export const projectCommand = define({
 			offline: ctx.values.offline,
 			timezone: ctx.values.timezone,
 			locale: ctx.values.locale,
+			modelFamily,
 		});
 
 		if (projectData.length === 0) {
@@ -78,7 +84,7 @@ export const projectCommand = define({
 				log(JSON.stringify([]));
 			}
 			else {
-				logger.warn('No Claude usage data found.');
+				logger.warn('No usage data found.');
 			}
 			process.exit(0);
 		}
@@ -131,7 +137,7 @@ export const projectCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Open+Claude Code Token Usage Report - By Project');
+			logger.box('Claude + OpenCode + Codex Usage Report - By Project');
 
 			// Create table with compact mode support
 			// When breakdown is enabled, remove Source column for cleaner display

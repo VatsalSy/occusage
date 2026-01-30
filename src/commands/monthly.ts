@@ -4,7 +4,7 @@ import { Result } from '@praha/byethrow';
 import { define } from 'gunshi';
 import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
-import { sharedArgs } from '../_shared-args.ts';
+import { resolveModelFamilyFilter, sharedArgs } from '../_shared-args.ts';
 import { aggregateModelBreakdowns, formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
@@ -43,6 +43,11 @@ export const monthlyCommand = define({
 			logger.level = 0;
 		}
 
+		const { modelFamily, warning } = resolveModelFamilyFilter(ctx.values);
+		if (warning != null && !useJson) {
+			logger.warn(warning);
+		}
+
         // Validate startOfMonth is within 1-31
         const startOfMonth = Number(ctx.values.startOfMonth);
         if (Number.isFinite(startOfMonth) && (startOfMonth < 1 || startOfMonth > 31)) {
@@ -59,6 +64,7 @@ export const monthlyCommand = define({
 			timezone: ctx.values.timezone,
 			locale: ctx.values.locale,
 			startOfMonth: ctx.values.startOfMonth,
+			modelFamily,
 		});
 
 		if (monthlyData.length === 0) {
@@ -77,7 +83,7 @@ export const monthlyCommand = define({
 				log(JSON.stringify(emptyOutput, null, 2));
 			}
 			else {
-				logger.warn('No Claude usage data found.');
+				logger.warn('No usage data found.');
 			}
 			process.exit(0);
 		}
@@ -123,7 +129,7 @@ export const monthlyCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Open+Claude Code Token Usage Report - Monthly');
+			logger.box('Claude + OpenCode + Codex Usage Report - Monthly');
 
 			// Create table with compact mode support
 			const table = new ResponsiveTable({

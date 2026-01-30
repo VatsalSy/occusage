@@ -159,3 +159,24 @@ export const OPENCODE_STORAGE_DIR_NAME = 'storage';
  * OpenCode projects directory name (note: singular in OpenCode)
  */
 export const OPENCODE_PROJECTS_DIR_NAME = 'project';
+
+/**
+ * Default Codex home directory path (~/.codex)
+ * Used as base path for loading Codex rollout JSONL files
+ */
+export const DEFAULT_CODEX_HOME_PATH = '.codex';
+
+/**
+ * Environment variable name for Codex home directory
+ */
+export const CODEX_HOME_ENV = 'CODEX_HOME';
+
+/**
+ * Codex sessions directory name within CODEX_HOME
+ */
+export const CODEX_SESSIONS_DIR_NAME = 'sessions';
+
+/**
+ * Codex archived sessions directory name within CODEX_HOME
+ */
+export const CODEX_ARCHIVED_SESSIONS_DIR_NAME = 'archived_sessions';

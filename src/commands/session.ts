@@ -3,8 +3,8 @@ import { Result } from '@praha/byethrow';
 import { define } from 'gunshi';
 import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
-import { sharedCommandConfig } from '../_shared-args.ts';
-import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
+import { resolveModelFamilyFilter, sharedCommandConfig } from '../_shared-args.ts';
+import { formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
 	createTotalsObject,
@@ -32,6 +32,11 @@ export const sessionCommand = define({
 		const useJson = ctx.values.json || ctx.values.jq != null;
 		if (useJson) {
 			logger.level = 0;
+		}
+
+		const { modelFamily, warning } = resolveModelFamilyFilter(ctx.values);
+		if (warning != null && !useJson) {
+			logger.warn(warning);
 		}
 
 		// Calculate current week boundaries if --full is not specified
@@ -63,6 +68,7 @@ export const sessionCommand = define({
 			offline: ctx.values.offline,
 			timezone: ctx.values.timezone,
 			locale: ctx.values.locale,
+			modelFamily,
 		});
 
 		if (sessionData.length === 0) {
@@ -70,7 +76,7 @@ export const sessionCommand = define({
 				log(JSON.stringify([]));
 			}
 			else {
-				logger.warn('No Claude usage data found.');
+				logger.warn('No usage data found.');
 			}
 			process.exit(0);
 		}
@@ -118,7 +124,7 @@ export const sessionCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Open+Claude Code Token Usage Report - By Session');
+			logger.box('Claude + OpenCode + Codex Usage Report - By Session');
 
 			// Create table with compact mode support
 			// For session command, keep Source column even in breakdown mode (unlike other commands)
@@ -179,17 +185,13 @@ export const sessionCommand = define({
 
 				maxSessionLength = Math.max(maxSessionLength, sessionDisplay.length);
 
-				// Determine the primary source for this session
-				// Prefer explicit source breakdowns; otherwise detect OpenCode by stricter pattern
-				const explicitSource = data.sourceBreakdowns?.length > 0 ? data.sourceBreakdowns[0].source : undefined;
-				const openCodePattern = /(^|[-_])ses_[A-Za-z0-9]+/; // Known OpenCode session ID fragment
-				const inferredSource = openCodePattern.test(data.sessionId) ? 'opencode' : 'claude';
-				const primarySource = explicitSource ?? inferredSource;
+				const sessionSources = data.sourceBreakdowns?.map(breakdown => breakdown.source) ?? [];
+				const sourceDisplay = sessionSources.length > 0 ? formatSources(sessionSources) : '';
 
 				if (ctx.values.breakdown) {
 					// In breakdown mode, show one row per session with aggregated totals, including source
 					table.push([
-						formatSources([primarySource]),
+						sourceDisplay,
 						sessionDisplay,
 						formatModelsDisplayMultiline(data.modelsUsed),
 						formatNumber(data.inputTokens),
@@ -206,9 +208,7 @@ export const sessionCommand = define({
 						const totalTokens = breakdown.inputTokens + breakdown.outputTokens
 							+ breakdown.cacheCreationTokens + breakdown.cacheReadTokens;
 
-						// Format model name (e.g., "claude-sonnet-4-20250514" -> "sonnet-4")
-						const match = breakdown.modelName.match(/claude-(\w+)-(\d+)-\d+/);
-						const formattedModelName = match != null ? `${match[1]}-${match[2]}` : breakdown.modelName;
+						const formattedModelName = formatModelName(breakdown.modelName);
 
 						table.push([
 							'', // Empty Source column
