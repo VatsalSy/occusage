@@ -18,6 +18,7 @@ import type {
 	Bucket,
 	CostMode,
 	ModelName,
+	ModelFamily,
 	SortOrder,
 	Version,
 	WeeklyDate,
@@ -40,6 +41,7 @@ import { z } from 'zod';
 import { CLAUDE_CONFIG_DIR_ENV, CLAUDE_PROJECTS_DIR_NAME, DEFAULT_CLAUDE_CODE_PATH, DEFAULT_CLAUDE_CONFIG_PATH, USAGE_DATA_GLOB_PATTERN, USER_HOME_DIR } from './_consts.ts';
 import { loadOpenCodeData } from './_opencode-loader.ts';
 import { loadCodexData } from './_codex-loader.ts';
+import { matchesModelFamily } from './_model-utils.ts';
 import {
 	identifySessionBlocks,
 } from './_session-blocks.ts';
@@ -99,6 +101,7 @@ async function _loadUnifiedUsageData(
 	options?: LoadOptions,
 ): Promise<UnifiedUsageEntry[]> {
 	const sources = options?.sources ?? ['claude', 'opencode', 'codex'];
+	const modelFamily = options?.modelFamily;
 	const allEntries: UnifiedUsageEntry[] = [];
 
 	// Load Claude data if included
@@ -154,6 +157,9 @@ async function _loadUnifiedUsageData(
 						if (model === '<synthetic>' || model === 'unknown') {
 							continue;
 						}
+						if (!matchesModelFamily(model, undefined, modelFamily)) {
+							continue;
+						}
 
 						allEntries.push({
 							source: 'claude',
@@ -202,6 +208,9 @@ async function _loadUnifiedUsageData(
 			if (options?.project != null && !entry.projectPath.includes(options.project)) {
 				continue;
 			}
+			if (!matchesModelFamily(entry.model, entry.provider, modelFamily)) {
+				continue;
+			}
 
 			allEntries.push({
 				source: 'opencode',
@@ -227,6 +236,9 @@ async function _loadUnifiedUsageData(
 		for (const entry of codexEntries) {
 			// Filter by project if specified
 			if (options?.project != null && !entry.projectPath.includes(options.project)) {
+				continue;
+			}
+			if (!matchesModelFamily(entry.model, entry.provider, modelFamily)) {
 				continue;
 			}
 
@@ -1179,6 +1191,7 @@ export type LoadOptions = {
 	timezone?: string; // Timezone for date grouping (e.g., 'UTC', 'America/New_York'). Defaults to system timezone
 	locale?: string; // Locale for date/time formatting (e.g., 'en-US', 'ja-JP'). Defaults to 'en-US'
 	sources?: Array<'claude' | 'opencode' | 'codex'>; // Filter by data sources (defaults to all)
+	modelFamily?: ModelFamily; // Filter by model family (claude or openai)
 } & DateFilter;
 
 /**
@@ -1924,6 +1937,7 @@ export async function loadSessionBlockData(
 ): Promise<SessionBlock[]> {
 	// Determine which sources to load (default to all)
 	const sources = options?.sources ?? ['claude', 'opencode', 'codex'];
+	const modelFamily = options?.modelFamily;
 	const allEntries: LoadedUsageEntry[] = [];
 
 	// Create a single PricingFetcher instance for both sources to avoid duplicate fetches
@@ -1996,6 +2010,9 @@ export async function loadSessionBlockData(
 						if (model === '<synthetic>' || model === 'unknown') {
 							continue;
 						}
+						if (!matchesModelFamily(model, undefined, modelFamily)) {
+							continue;
+						}
 
 						// Get Claude Code usage limit expiration date
 						const usageLimitResetTime = getUsageLimitResetTime(data);
@@ -2034,6 +2051,10 @@ export async function loadSessionBlockData(
 			for (const entry of openCodeEntries) {
 				// Filter by project if specified
 				if (options?.project != null && !entry.projectPath.includes(options.project)) {
+					continue;
+				}
+
+				if (!matchesModelFamily(entry.model, entry.provider, modelFamily)) {
 					continue;
 				}
 
@@ -2087,6 +2108,9 @@ export async function loadSessionBlockData(
 			for (const entry of codexEntries) {
 				// Filter by project if specified
 				if (options?.project != null && !entry.projectPath.includes(options.project)) {
+					continue;
+				}
+				if (!matchesModelFamily(entry.model, entry.provider, modelFamily)) {
 					continue;
 				}
 

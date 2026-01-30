@@ -2,6 +2,8 @@
  * @fileoverview Model normalization and classification utilities
  */
 
+import type { ModelFamily } from './_types.ts';
+
 const PROVIDER_PREFIXES = new Set([
 	'anthropic',
 	'openai',
@@ -69,4 +71,18 @@ export function isOpenAIModel(normalizedModel: string | null, providerId?: strin
 
 export function isSupportedModel(normalizedModel: string | null, providerId?: string | null): boolean {
 	return isClaudeModel(normalizedModel) || isOpenAIModel(normalizedModel, providerId);
+}
+
+export function matchesModelFamily(modelId: string | null | undefined, providerId?: string | null, family?: ModelFamily): boolean {
+	if (family == null) {
+		return true;
+	}
+	const normalized = normalizeModelId(modelId ?? undefined);
+	if (normalized == null) {
+		return false;
+	}
+	if (family === 'claude') {
+		return isClaudeModel(normalized);
+	}
+	return isOpenAIModel(normalized, providerId);
 }

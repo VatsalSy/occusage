@@ -75,6 +75,12 @@ export type ProjectPath = z.infer<typeof projectPathSchema>;
 export type Version = z.infer<typeof versionSchema>;
 
 /**
+ * Supported model families for filtering
+ */
+export const ModelFamilies = ['claude', 'openai'] as const;
+export type ModelFamily = TupleToUnion<typeof ModelFamilies>;
+
+/**
  * Helper functions to create branded values by parsing and validating input strings
  * These functions should be used when converting plain strings to branded types
  */

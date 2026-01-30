@@ -8,7 +8,7 @@
 
 import type { SessionBlock } from './_session-blocks.ts';
 import type { TerminalManager } from './_terminal-utils.ts';
-import type { CostMode, SortOrder } from './_types.ts';
+import type { CostMode, ModelFamily, SortOrder } from './_types.ts';
 // Delay with AbortSignal support and proper cleanup
 const delay = (ms: number, options?: { signal?: AbortSignal }): Promise<void> => {
     return new Promise<void>((resolve, reject) => {
@@ -85,6 +85,7 @@ export type LiveMonitoringConfig = {
 	includeOpenCode?: boolean;
 	includeCodex?: boolean;
 	codexPath?: string;
+	modelFamily?: ModelFamily;
 };
 
 /**

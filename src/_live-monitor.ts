@@ -9,12 +9,13 @@
  */
 
 import type { LoadedUsageEntry, SessionBlock } from './_session-blocks.ts';
-import type { CostMode, SortOrder } from './_types.ts';
+import type { CostMode, ModelFamily, SortOrder } from './_types.ts';
 import { readFile, stat } from 'node:fs/promises';
 import { Result } from '@praha/byethrow';
 import { loadOpenCodeData } from './_opencode-loader.ts';
 import { loadCodexData } from './_codex-loader.ts';
 import { identifySessionBlocks } from './_session-blocks.ts';
+import { matchesModelFamily } from './_model-utils.ts';
 import {
 	calculateCostForEntry,
 	createUniqueHash,
@@ -37,6 +38,7 @@ export type LiveMonitorConfig = {
 	includeOpenCode?: boolean;
 	includeCodex?: boolean;
 	codexPath?: string;
+	modelFamily?: ModelFamily;
 };
 
 /**
@@ -188,6 +190,9 @@ export class LiveMonitor implements Disposable {
 					if (model === '<synthetic>' || model === 'unknown') {
 						continue;
 					}
+					if (!matchesModelFamily(model, undefined, this.config.modelFamily)) {
+						continue;
+					}
 
 					// Add entry
 					this.allEntries.push({
@@ -234,6 +239,10 @@ export class LiveMonitor implements Disposable {
 				}
 
 				this.openCodeHashes.add(entryHash);
+
+				if (!matchesModelFamily(entry.model, entry.provider, this.config.modelFamily)) {
+					continue;
+				}
 
 					// Calculate cost for OpenCode entries when cost is missing
 					let costUSD = entry.cost ?? 0;
@@ -288,6 +297,10 @@ export class LiveMonitor implements Disposable {
 					}
 
 					this.codexHashes.add(entryHash);
+
+					if (!matchesModelFamily(entry.model, entry.provider, this.config.modelFamily)) {
+						continue;
+					}
 
 					let costUSD = entry.cost ?? 0;
 					if ((entry.cost == null || entry.cost === 0) && this.config.mode !== 'display' && this.fetcher != null) {
