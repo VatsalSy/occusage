@@ -77,7 +77,7 @@ export const monthlyCommand = define({
 				log(JSON.stringify(emptyOutput, null, 2));
 			}
 			else {
-				logger.warn('No Claude usage data found.');
+				logger.warn('No usage data found.');
 			}
 			process.exit(0);
 		}
@@ -123,7 +123,7 @@ export const monthlyCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Open+Claude Code Token Usage Report - Monthly');
+			logger.box('Claude + OpenCode + Codex Usage Report - Monthly');
 
 			// Create table with compact mode support
 			const table = new ResponsiveTable({

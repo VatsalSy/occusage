@@ -207,7 +207,7 @@ export const blocksCommand = define({
 				log(JSON.stringify({ blocks: [] }));
 			}
 			else {
-				logger.warn('No Claude usage data found.');
+				logger.warn('No usage data found.');
 			}
 			process.exit(0);
 		}
@@ -464,7 +464,7 @@ export const blocksCommand = define({
 			}
 			else {
 				// Table view for multiple blocks
-				logger.box('Open+Claude Code Token Usage Report - Session Blocks');
+				logger.box('Claude + OpenCode + Codex Usage Report - Session Blocks');
 
 				// Note: actualTokenLimit is calculated in projections section when needed
 

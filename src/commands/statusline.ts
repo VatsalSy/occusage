@@ -87,7 +87,7 @@ export const statuslineCommand = define({
 				until: todayStr,
 				mode: 'auto',
 				offline: ctx.values.offline,
-				sources: ['claude', 'opencode'],
+				sources: ['claude', 'opencode', 'codex'],
 			});
 
 			if (dailyData.length > 0) {
@@ -106,7 +106,7 @@ export const statuslineCommand = define({
 			const blocks = await loadSessionBlockData({
 				mode: 'auto',
 				offline: ctx.values.offline,
-				sources: ['claude', 'opencode'],
+				sources: ['claude', 'opencode', 'codex'],
 			});
 
 			// Only identify blocks if we have data

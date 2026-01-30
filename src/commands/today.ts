@@ -72,7 +72,7 @@ export const todayCommand = define({
 				log(JSON.stringify([]));
 			}
 			else {
-				logger.warn('No Claude usage data found for today.');
+				logger.warn('No usage data found for today.');
 			}
 			process.exit(0);
 		}
@@ -120,7 +120,7 @@ export const todayCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Open+Claude Code Token Usage Report - Today');
+			logger.box('Claude + OpenCode + Codex Usage Report - Today');
 
 			// Create table with compact mode support
 			const table = new ResponsiveTable({

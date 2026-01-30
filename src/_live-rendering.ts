@@ -83,6 +83,8 @@ export type LiveMonitoringConfig = {
 	mode: CostMode;
 	order: SortOrder;
 	includeOpenCode?: boolean;
+	includeCodex?: boolean;
+	codexPath?: string;
 };
 
 /**
@@ -477,6 +479,8 @@ export function renderLiveDisplay(terminal: TerminalManager, block: SessionBlock
 					return pc.blue('[C]');
 				case 'opencode':
 					return pc.green('[O]');
+				case 'codex':
+					return pc.magenta('[X]');
 				default:
 					return pc.gray('[?]');
 			}

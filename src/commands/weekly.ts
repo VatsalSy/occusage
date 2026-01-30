@@ -63,7 +63,7 @@ export const weeklyCommand = define({
 				log(JSON.stringify(emptyOutput, null, 2));
 			}
 			else {
-				logger.warn('No Claude usage data found.');
+				logger.warn('No usage data found.');
 			}
 			process.exit(0);
 		}
@@ -109,7 +109,7 @@ export const weeklyCommand = define({
 		}
 		else {
 			// Print header
-			logger.box('Open+Claude Code Token Usage Report - Weekly');
+			logger.box('Claude + OpenCode + Codex Usage Report - Weekly');
 
 			// Create table with compact mode support
 			// When breakdown is enabled, remove Source column for cleaner display

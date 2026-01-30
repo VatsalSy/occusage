@@ -13,6 +13,7 @@ import type { CostMode, SortOrder } from './_types.ts';
 import { readFile, stat } from 'node:fs/promises';
 import { Result } from '@praha/byethrow';
 import { loadOpenCodeData } from './_opencode-loader.ts';
+import { loadCodexData } from './_codex-loader.ts';
 import { identifySessionBlocks } from './_session-blocks.ts';
 import {
 	calculateCostForEntry,
@@ -34,6 +35,8 @@ export type LiveMonitorConfig = {
 	mode: CostMode;
 	order: SortOrder;
 	includeOpenCode?: boolean;
+	includeCodex?: boolean;
+	codexPath?: string;
 };
 
 /**
@@ -47,6 +50,8 @@ export class LiveMonitor implements Disposable {
 	private allEntries: LoadedUsageEntry[] = [];
 	private lastOpenCodeLoadTime = 0;
 	private openCodeHashes = new Set<string>();
+	private lastCodexLoadTime = 0;
+	private codexHashes = new Set<string>();
 	private cachedActiveBlock: SessionBlock | null = null;
 
 	constructor(config: LiveMonitorConfig) {
@@ -265,6 +270,56 @@ export class LiveMonitor implements Disposable {
 			catch (err) {
 				// Capture OpenCode loading errors at debug level to aid diagnostics without surfacing to users
 				logger.debug('OpenCode load error', err);
+			}
+		}
+
+		// Load Codex data periodically (every 5 seconds to balance responsiveness and performance)
+		if ((this.config.includeCodex ?? true) && now - this.lastCodexLoadTime > 5000) {
+			try {
+				const codexEntries = await loadCodexData(this.config.codexPath, true);
+
+				for (const entry of codexEntries) {
+					const projectIdentifier = entry.projectPath ?? 'unknown-project';
+					const entryIdentity = entry.sessionId ?? 'no-id';
+					const entryHash = `codex-${projectIdentifier}-${entry.timestamp.toISOString()}-${entry.model}-${entry.tokens.input}-${entry.tokens.output}-${entryIdentity}`;
+
+					if (this.codexHashes.has(entryHash)) {
+						continue;
+					}
+
+					this.codexHashes.add(entryHash);
+
+					let costUSD = entry.cost ?? 0;
+					if ((entry.cost == null || entry.cost === 0) && this.config.mode !== 'display' && this.fetcher != null) {
+						const tokens = {
+							input_tokens: entry.tokens.input,
+							output_tokens: entry.tokens.output,
+							cache_creation_input_tokens: 0,
+							cache_read_input_tokens: entry.tokens.cache?.read ?? 0,
+						};
+						costUSD = await Result.unwrap(this.fetcher.calculateCostFromTokens(tokens, entry.model), 0);
+					}
+
+					this.allEntries.push({
+						source: 'codex',
+						timestamp: entry.timestamp,
+						usage: {
+							inputTokens: entry.tokens.input,
+							outputTokens: entry.tokens.output,
+							cacheCreationInputTokens: 0,
+							cacheReadInputTokens: entry.tokens.cache?.read ?? 0,
+						},
+						costUSD,
+						model: entry.model,
+						version: undefined,
+						usageLimitResetTime: undefined,
+					});
+				}
+
+				this.lastCodexLoadTime = now;
+			}
+			catch (err) {
+				logger.debug('Codex load error', err);
 			}
 		}
 

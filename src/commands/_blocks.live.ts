@@ -52,6 +52,8 @@ export async function startLiveMonitoring(config: LiveMonitoringConfig): Promise
 		mode: config.mode,
 		order: config.order,
 		includeOpenCode: config.includeOpenCode,
+		includeCodex: config.includeCodex,
+		codexPath: config.codexPath,
 	});
 
 	const monitoringResult = await Result.try({
