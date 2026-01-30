@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 This project is a fork of [ccusage](https://github.com/ryoppippi/ccusage) with enhancements for OpenCode support.
 
+## [2.0.0] - 2026-01-30
+
+### ✨ Features
+- **Codex support end-to-end**: New loader with model normalization and pricing integration.
+- **Codex reporting**: [X] usage now appears across CLI reports, statusline, and live blocks monitoring.
+- **Model family filtering**: New `--gpt` and `--claude` flags for targeted reports.
+
+### 🔧 Improvements
+- **OpenCode directory support**: Handles the correct OpenCode folders with expanded loader coverage.
+- **Type safety**: Branded model families and async Codex reads for safer data processing.
+- **Docs and tooling**: README and `testManual.sh` updated for Codex and filters.
+
+### 🐛 Bug Fixes
+- **Codex tokens**: Corrected token handling and prevented session ID collisions.
+- **OpenCode edge cases**: Addressed loader issues surfaced during PR feedback.
+
 ## Fork History
 
 ### [15.9.2] - 2025-01-11 - Fork Establishment
