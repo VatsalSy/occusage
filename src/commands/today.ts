@@ -3,7 +3,7 @@ import { Result } from '@praha/byethrow';
 import { define } from 'gunshi';
 import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
-import { sharedArgs } from '../_shared-args.ts';
+import { resolveModelFamilyFilter, sharedArgs } from '../_shared-args.ts';
 import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
@@ -26,6 +26,8 @@ export const todayCommand = define({
 		debugSamples: sharedArgs.debugSamples,
 		order: sharedArgs.order,
 		breakdown: sharedArgs.breakdown,
+		gpt: sharedArgs.gpt,
+		claude: sharedArgs.claude,
 		offline: sharedArgs.offline,
 		forceRefreshPricing: sharedArgs.forceRefreshPricing,
 		noCache: sharedArgs.noCache,
@@ -47,6 +49,11 @@ export const todayCommand = define({
 			logger.level = 0;
 		}
 
+		const { modelFamily, warning } = resolveModelFamilyFilter(ctx.values);
+		if (warning != null && !useJson) {
+			logger.warn(warning);
+		}
+
 		// Get today's date in the user's timezone (avoid UTC off-by-one)
 		const tz = ctx.values.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 		const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -65,6 +72,7 @@ export const todayCommand = define({
 			project: ctx.values.project,
 			timezone: tz, // Use the calculated timezone, not ctx.values.timezone
 			locale: ctx.values.locale,
+			modelFamily,
 		});
 
 		if (dailyData.length === 0) {

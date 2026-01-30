@@ -4,7 +4,7 @@ import { define } from 'gunshi';
 import pc from 'picocolors';
 import { WEEK_DAYS } from '../_consts.ts';
 import { processWithJq } from '../_jq-processor.ts';
-import { sharedArgs } from '../_shared-args.ts';
+import { resolveModelFamilyFilter, sharedArgs } from '../_shared-args.ts';
 import { formatCurrency, formatModelsDisplayMultiline, formatNumber, formatSources, pushBreakdownRows, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
@@ -36,6 +36,11 @@ export const weeklyCommand = define({
 			logger.level = 0;
 		}
 
+		const { modelFamily, warning } = resolveModelFamilyFilter(ctx.values);
+		if (warning != null && !useJson) {
+			logger.warn(warning);
+		}
+
 		const weeklyData = await loadUnifiedWeeklyUsageData({
 			since: ctx.values.since,
 			until: ctx.values.until,
@@ -45,6 +50,7 @@ export const weeklyCommand = define({
 			offline: ctx.values.offline,
 			startOfWeek: ctx.values.startOfWeek,
 			locale: ctx.values.locale,
+			modelFamily,
 		});
 
 		if (weeklyData.length === 0) {

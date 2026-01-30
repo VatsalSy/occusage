@@ -1,5 +1,5 @@
 import type { Args } from 'gunshi';
-import type { CostMode, SortOrder } from './_types.ts';
+import type { CostMode, ModelFamily, SortOrder } from './_types.ts';
 import { CostModes, filterDateSchema, SortOrders } from './_types.ts';
 
 /**
@@ -71,6 +71,16 @@ export const sharedArgs = {
 		description: 'Show per-model cost breakdown',
 		default: false,
 	},
+	gpt: {
+		type: 'boolean',
+		description: 'Show only OpenAI (GPT/Codex) usage',
+		default: false,
+	},
+	claude: {
+		type: 'boolean',
+		description: 'Show only Claude usage',
+		default: false,
+	},
 	offline: {
 		type: 'boolean',
 		negatable: true,
@@ -121,3 +131,27 @@ export const sharedCommandConfig = {
 	args: sharedArgs,
 	toKebab: true,
 } as const;
+
+type ModelFamilyArgs = {
+	gpt?: boolean;
+	claude?: boolean;
+};
+
+export function resolveModelFamilyFilter(values: ModelFamilyArgs): { modelFamily?: ModelFamily; warning?: string } {
+	const wantsGpt = values.gpt === true;
+	const wantsClaude = values.claude === true;
+
+	if (wantsGpt && wantsClaude) {
+		return { warning: 'Both --gpt and --claude were set; showing all models.' };
+	}
+
+	if (wantsGpt) {
+		return { modelFamily: 'openai' };
+	}
+
+	if (wantsClaude) {
+		return { modelFamily: 'claude' };
+	}
+
+	return {};
+}

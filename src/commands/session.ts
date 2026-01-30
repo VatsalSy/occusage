@@ -3,7 +3,7 @@ import { Result } from '@praha/byethrow';
 import { define } from 'gunshi';
 import pc from 'picocolors';
 import { processWithJq } from '../_jq-processor.ts';
-import { sharedCommandConfig } from '../_shared-args.ts';
+import { resolveModelFamilyFilter, sharedCommandConfig } from '../_shared-args.ts';
 import { formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
@@ -32,6 +32,11 @@ export const sessionCommand = define({
 		const useJson = ctx.values.json || ctx.values.jq != null;
 		if (useJson) {
 			logger.level = 0;
+		}
+
+		const { modelFamily, warning } = resolveModelFamilyFilter(ctx.values);
+		if (warning != null && !useJson) {
+			logger.warn(warning);
 		}
 
 		// Calculate current week boundaries if --full is not specified
@@ -63,6 +68,7 @@ export const sessionCommand = define({
 			offline: ctx.values.offline,
 			timezone: ctx.values.timezone,
 			locale: ctx.values.locale,
+			modelFamily,
 		});
 
 		if (sessionData.length === 0) {

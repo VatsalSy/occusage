@@ -54,6 +54,7 @@ export async function startLiveMonitoring(config: LiveMonitoringConfig): Promise
 		includeOpenCode: config.includeOpenCode,
 		includeCodex: config.includeCodex,
 		codexPath: config.codexPath,
+		modelFamily: config.modelFamily,
 	});
 
 	const monitoringResult = await Result.try({

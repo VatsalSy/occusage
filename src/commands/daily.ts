@@ -7,7 +7,7 @@ import pc from 'picocolors';
 
 import { processWithJq } from '../_jq-processor.ts';
 
-import { sharedCommandConfig } from '../_shared-args.ts';
+import { resolveModelFamilyFilter, sharedCommandConfig } from '../_shared-args.ts';
 import { aggregateModelBreakdowns, formatCurrency, formatModelName, formatModelsDisplayMultiline, formatNumber, formatSources, ResponsiveTable } from '../_utils.ts';
 import {
 	calculateTotals,
@@ -38,6 +38,11 @@ export const dailyCommand = define({
 			logger.level = 0;
 		}
 
+		const { modelFamily, warning } = resolveModelFamilyFilter(ctx.values);
+		if (warning != null && !useJson) {
+			logger.warn(warning);
+		}
+
 		const dailyData = await loadUnifiedDailyUsageData({
 			since: ctx.values.since,
 			until: ctx.values.until,
@@ -49,6 +54,7 @@ export const dailyCommand = define({
 			project: ctx.values.project,
 			timezone: ctx.values.timezone,
 			locale: ctx.values.locale,
+			modelFamily,
 		});
 
 		if (dailyData.length === 0) {
