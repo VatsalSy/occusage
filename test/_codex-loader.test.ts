@@ -115,11 +115,11 @@ describe('Codex rollout loader', () => {
 		expect(result[0]?.projectPath).toBe('/Users/test/project');
 		expect(result[0]?.model).toBe('gpt-4o');
 		expect(result[0]?.tokens.input).toBe(100);
-		expect(result[0]?.tokens.output).toBe(60);
+		expect(result[0]?.tokens.output).toBe(50);
 		expect(result[0]?.tokens.cache?.read).toBe(20);
 		expect(result[0]?.tokens.reasoning).toBe(10);
 		expect(result[1]?.tokens.input).toBe(50);
-		expect(result[1]?.tokens.output).toBe(30);
+		expect(result[1]?.tokens.output).toBe(20);
 		expect(result[1]?.tokens.cache?.read).toBe(10);
 		expect(result[1]?.tokens.reasoning).toBe(10);
 	});

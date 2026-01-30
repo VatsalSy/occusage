@@ -79,24 +79,24 @@ export class LiveMonitor implements Disposable {
 		const results = await globUsageFiles(this.config.claudePaths);
 		const allFiles = results.map(r => r.file);
 
-		if (allFiles.length === 0) {
-			return null;
-		}
-
 		// Check for new or modified files using file modification time
 		const filesToRead: string[] = [];
 		// Stage mtimes; commit after successful read
 		const stagedMtimes = new Map<string, number>();
-		const statResults = await Promise.allSettled(
-			allFiles.map(async file => {
-				try {
-					const fileStats = await stat(file);
-					return { file, mtimeMs: fileStats.mtimeMs } as const;
-				} catch (err) {
-					throw { file, err };
-				}
-			}),
-		);
+		
+		// Only process Claude files if we have any
+		const statResults = allFiles.length > 0
+			? await Promise.allSettled(
+				allFiles.map(async file => {
+					try {
+						const fileStats = await stat(file);
+						return { file, mtimeMs: fileStats.mtimeMs } as const;
+					} catch (err) {
+						throw { file, err };
+					}
+				}),
+			)
+			: [];
 
 		for (const res of statResults) {
 			if (res.status === "rejected") {

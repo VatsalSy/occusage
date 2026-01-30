@@ -17,6 +17,21 @@ import { logger } from './logger.ts';
 import { getGlobalCacheManager } from './_cache-manager.ts';
 
 /**
+ * Strips provider prefixes from model names
+ * @param value - Model name that may have provider prefixes
+ * @returns Model name with provider prefixes removed
+ */
+export function stripProviderPrefix(value: string): string {
+	let v = value;
+	let prev: string | null = null;
+	while (prev !== v) {
+		prev = v;
+		v = v.replace(/^(anthropic|openai|openrouter|bedrock|vertex|azure|google|google-ai-studio)[/:]/i, '');
+	}
+	return v;
+}
+
+/**
  * Fetches and caches model pricing information from LiteLLM
  * Implements Disposable pattern for automatic resource cleanup
  */
@@ -209,15 +224,6 @@ export class PricingFetcher implements Disposable {
 		return Result.pipe(
 			this.ensurePricingLoaded(),
 			Result.map((pricing) => {
-				const stripProviderPrefix = (value: string): string => {
-					let v = value;
-					let prev: string | null = null;
-					while (prev !== v) {
-						prev = v;
-						v = v.replace(/^(anthropic|openai|openrouter|bedrock|vertex|azure|google|google-ai-studio)[/:]/i, '');
-					}
-					return v;
-				};
 				const normalizedModelName = stripProviderPrefix(modelName);
 
 				// Direct match

@@ -5,6 +5,7 @@ import Table from 'cli-table3';
 import { uniq } from 'es-toolkit';
 import pc from 'picocolors';
 import stringWidth from 'string-width';
+import { normalizeModelId } from './_model-utils.ts';
 
 /**
  * Table row data type supporting strings, numbers, and formatted cell objects
@@ -320,23 +321,17 @@ export function formatCurrency(amount: number): string {
  * @returns Shortened model name (e.g., "sonnet-4") or original if pattern doesn't match
  */
 export function formatModelName(modelName: string): string {
-	let cleaned = modelName.trim();
-	// Strip known provider prefixes for display (keep original casing in remainder)
-	let prev: string | null = null;
-	while (prev !== cleaned) {
-		prev = cleaned;
-		cleaned = cleaned.replace(/^(anthropic|openai|openrouter|bedrock|vertex|azure|google|google-ai-studio)[/:]/i, '');
-	}
+	const normalized = normalizeModelId(modelName) ?? modelName.trim();
 
 	// Extract model type from full model name
 	// e.g., "claude-sonnet-4-20250514" -> "sonnet-4"
 	// e.g., "claude-opus-4-20250514" -> "opus-4"
-	const match = cleaned.toLowerCase().match(/claude-(\w+)-(\d+)-\d+/);
+	const match = normalized.match(/claude-(\w+)-(\d+)-\d+/);
 	if (match != null) {
 		return `${match[1]}-${match[2]}`;
 	}
-	// Return original if pattern doesn't match
-	return cleaned;
+	// Return normalized value if pattern doesn't match
+	return normalized;
 }
 
 /**

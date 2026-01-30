@@ -94,7 +94,7 @@ type UnifiedUsageEntry = {
 };
 
 /**
- * Loads unified usage data from both Claude and OpenCode sources
+ * Loads unified usage data from Claude, OpenCode, and Codex sources
  */
 
 async function _loadUnifiedUsageData(

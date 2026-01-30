@@ -10,6 +10,7 @@ import {
 	DEFAULT_CODEX_HOME_PATH,
 	USER_HOME_DIR,
 } from './_consts.ts';
+import { codexUsageEntrySchema } from './_codex-types.ts';
 import { isSupportedModel, normalizeModelId } from './_model-utils.ts';
 import { logger } from './logger.ts';
 
@@ -209,11 +210,11 @@ function parseCodexFile(filePath: string): CodexUsageEntry[] {
 				const inputTokens = usage.input_tokens ?? 0;
 				const cachedInputTokens = usage.cached_input_tokens ?? 0;
 				const reasoningTokens = usage.reasoning_output_tokens ?? 0;
-				const outputTokens = (usage.output_tokens ?? 0) + reasoningTokens;
+				const outputTokens = usage.output_tokens ?? 0;
 
 				const projectPath = currentCwd ?? sessionCwd ?? 'unknown';
 
-				entries.push({
+				const candidate = {
 					sessionId: sessionId ?? fallbackSessionId,
 					projectPath,
 					timestamp: new Date(timestamp),
@@ -225,7 +226,15 @@ function parseCodexFile(filePath: string): CodexUsageEntry[] {
 						...(cachedInputTokens > 0 ? { cache: { read: cachedInputTokens } } : {}),
 						...(reasoningTokens > 0 ? { reasoning: reasoningTokens } : {}),
 					},
-				});
+				};
+
+				const validated = codexUsageEntrySchema.safeParse(candidate);
+				if (!validated.success) {
+					logger.debug('Skipping invalid Codex entry:', validated.error.message);
+					continue;
+				}
+
+				entries.push(validated.data);
 			}
 		}
 	}

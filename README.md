@@ -234,6 +234,7 @@ bun run start project --json
 - **🎨 Beautiful Output**: Color-coded tables with smart formatting
 
 ### OpenCode, Claude Code & Codex Integration
+
 - **[O] OpenCode**: Track usage from `~/.local/share/opencode/` (or `OPENCODE_DATA_DIR`)
 - **[C] Claude Code**: Track usage from `~/.claude/projects/` and `~/.config/claude/projects/`
 - **[X] Codex**: Track usage from `~/.codex/` (or `CODEX_HOME`)
@@ -243,9 +244,10 @@ bun run start project --json
 ## 📈 Example Output
 
 ### Today's Usage Report
-```
+
+```text
 ╭──────────────────────────────────────────╮
-│  OpenCode + Claude + Codex Usage - Today  │
+│  Claude + OpenCode + Codex Usage Report - Today  │
 ╰──────────────────────────────────────────╯
 
 ┌──────────┬────────────────────┬───────────┬───────────┬───────────────┬──────────────┬───────────────┬─────────────┐
