@@ -132,7 +132,7 @@ export const sharedCommandConfig = {
 	toKebab: true,
 } as const;
 
-type ModelFamilyArgs = {
+export type ModelFamilyArgs = {
 	gpt?: boolean;
 	claude?: boolean;
 };
