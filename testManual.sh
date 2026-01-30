@@ -8,21 +8,22 @@ IFS=$'\n\t'
 run_command() {
     local cmd="$1"
     if [[ "$cmd" == "today" ]]; then
-        echo "Running: bun run start"
-        bun run start
-        echo "Running: bun run start --breakdown"
-        bun run start --breakdown
+        echo "Running: bun run start ${filter_flags[*]}"
+        bun run start "${filter_flags[@]}"
+        echo "Running: bun run start --breakdown ${filter_flags[*]}"
+        bun run start --breakdown "${filter_flags[@]}"
     else
-        echo "Running: bun run start \"$cmd\""
-        bun run start "$cmd"
-        echo "Running: bun run start \"$cmd\" --breakdown"
-        bun run start "$cmd" --breakdown
+        echo "Running: bun run start \"$cmd\" ${filter_flags[*]}"
+        bun run start "$cmd" "${filter_flags[@]}"
+        echo "Running: bun run start \"$cmd\" --breakdown ${filter_flags[*]}"
+        bun run start "$cmd" --breakdown "${filter_flags[@]}"
     fi
     echo ""
 }
 
 # Parse command line arguments
 commands_to_run=()
+filter_flags=()
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -58,13 +59,25 @@ while [[ $# -gt 0 ]]; do
             commands_to_run=("today" "daily" "weekly" "monthly" "session" "project" "blocks")
             shift
             ;;
+        --gpt)
+            filter_flags+=("--gpt")
+            shift
+            ;;
+        --claude)
+            filter_flags+=("--claude")
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--today] [--daily] [--weekly] [--monthly] [--session] [--project] [--blocks] [--all]"
+            echo "Usage: $0 [--today] [--daily] [--weekly] [--monthly] [--session] [--project] [--blocks] [--all] [--gpt] [--claude]"
             exit 1
             ;;
     esac
 done
+
+if [[ ${#filter_flags[@]} -gt 1 ]]; then
+    echo "Warning: both --gpt and --claude were set; running with all models."
+fi
 
 # If no arguments provided, default to today
 if [[ ${#commands_to_run[@]} -eq 0 ]]; then
