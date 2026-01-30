@@ -1,6 +1,6 @@
 import type { Args } from 'gunshi';
 import type { CostMode, ModelFamily, SortOrder } from './_types.ts';
-import { CostModes, filterDateSchema, SortOrders } from './_types.ts';
+import { CostModes, createModelFamily, filterDateSchema, SortOrders } from './_types.ts';
 
 /**
  * Parses and validates a date argument in YYYYMMDD format
@@ -146,11 +146,11 @@ export function resolveModelFamilyFilter(values: ModelFamilyArgs): { modelFamily
 	}
 
 	if (wantsGpt) {
-		return { modelFamily: 'openai' };
+		return { modelFamily: createModelFamily('openai') };
 	}
 
 	if (wantsClaude) {
-		return { modelFamily: 'claude' };
+		return { modelFamily: createModelFamily('claude') };
 	}
 
 	return {};

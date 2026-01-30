@@ -1,5 +1,6 @@
 import type { CodexUsageEntry } from './_codex-types.ts';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join, resolve, basename } from 'node:path';
 import process from 'node:process';
 import { glob } from 'tinyglobby';
@@ -93,7 +94,7 @@ function parseRolloutLine(raw: unknown): RolloutLine | null {
 	};
 }
 
-function parseCodexFile(filePath: string): CodexUsageEntry[] {
+async function parseCodexFile(filePath: string): Promise<CodexUsageEntry[]> {
 	const entries: CodexUsageEntry[] = [];
 	let sessionId: string | undefined;
 	let sessionCwd: string | undefined;
@@ -104,7 +105,7 @@ function parseCodexFile(filePath: string): CodexUsageEntry[] {
 
 	const fallbackSessionId = deriveSessionIdFromFilename(filePath);
 
-	const content = readFileSync(filePath, 'utf-8');
+	const content = await readFile(filePath, 'utf-8');
 	const lines = content.split('\n').filter(line => line.trim().length > 0);
 
 	for (const line of lines) {
@@ -265,7 +266,7 @@ export async function loadCodexData(codexHome?: string, suppressLogs = false): P
 
 			for (const file of files) {
 				try {
-					const entries = parseCodexFile(file);
+					const entries = await parseCodexFile(file);
 					allEntries.push(...entries);
 				} catch (error) {
 					if (!suppressLogs) {
