@@ -11,6 +11,7 @@ import {
 	OPENCODE_STORAGE_DIR_NAME,
 	USER_HOME_DIR,
 } from './_consts.ts';
+import { isSupportedModel, normalizeModelId } from './_model-utils.ts';
 import {
 	opencodeMessageSchema,
 	opencodePartSchema,
@@ -18,25 +19,6 @@ import {
 	opencodeSessionInfoSchema,
 } from './_opencode-types.ts';
 import { logger } from './logger.ts';
-
-/**
- * Normalize model identifier strings to a comparable canonical form
- * - lowercases
- * - strips provider prefixes like "anthropic:", "openrouter:", etc.
- * - trims whitespace
- * - prefixes known alias families (sonnet/opus/haiku) with "claude-" for detection
- */
-function normalizeModelId(modelId?: string): string | null {
-    if (modelId == null) return null;
-    let s = modelId.trim().toLowerCase();
-    if (s === '') return null;
-    s = s.replace(/^(anthropic:|openrouter:|bedrock:|vertex:)/, '');
-    // If starts with family alias, prefix claude-
-    if (/^(sonnet|opus|haiku)(-|$)/.test(s) && !s.startsWith('claude-')) {
-        s = `claude-${s}`;
-    }
-    return s;
-}
 
 /**
  * Check if a path is a Windows absolute path
@@ -410,7 +392,7 @@ function loadLegacyData(projectsPath: string): OpenCodeUsageEntry[] {
 							}
 							
 							const normalizedModel = normalizeModelId(model);
-							if (normalizedModel == null || normalizedModel === 'unknown' || !normalizedModel.includes('claude')) {
+							if (normalizedModel == null || normalizedModel === 'unknown' || !isSupportedModel(normalizedModel, provider)) {
 								continue;
 							}
 							
@@ -532,15 +514,14 @@ function loadStorageData(storagePath: string): OpenCodeUsageEntry[] {
 				const modelRaw = message.modelID
 					?? (modelFromMessage != null && typeof modelFromMessage === 'string' ? modelFromMessage : modelFromMessage != null && typeof modelFromMessage === 'object' ? modelFromMessage.modelID : undefined)
 					?? primaryPart?.modelID;
-				const normalizedModel = normalizeModelId(modelRaw);
-				if (normalizedModel == null || normalizedModel === 'unknown' || !normalizedModel.includes('claude')) {
-					continue;
-				}
-
 				const provider = message.providerID
 					?? (modelFromMessage != null && typeof modelFromMessage === 'object' ? modelFromMessage.providerID : undefined)
 					?? primaryPart?.providerID
 					?? message.provider;
+				const normalizedModel = normalizeModelId(modelRaw);
+				if (normalizedModel == null || normalizedModel === 'unknown' || !isSupportedModel(normalizedModel, provider)) {
+					continue;
+				}
 
 				// Determine project path with fallback handling
 				// Prefer explicit paths over project key; use placeholder for missing paths
@@ -589,6 +570,7 @@ export function loadOpenCodeData(openCodePath?: string, suppressLogs = false): O
 
 	for (const dir of directories) {
 		const storagePath = join(dir, OPENCODE_STORAGE_DIR_NAME);
+		const projectRoot = join(dir, OPENCODE_PROJECTS_DIR_NAME);
 		const projectsPath = join(dir, CLAUDE_PROJECTS_DIR_NAME);
 		
 		// Prefer storage layout (new format) if it exists
@@ -602,6 +584,36 @@ export function loadOpenCodeData(openCodePath?: string, suppressLogs = false): O
 			}
 			catch (error) {
 				logger.warn('Error reading OpenCode storage:', error);
+			}
+		}
+		// Also support per-project storage layout: project/<slug>/storage
+		if (existsSync(projectRoot)) {
+			try {
+				const projectDirs = readdirSync(projectRoot).filter((entry) => {
+					try {
+						return statSync(join(projectRoot, entry)).isDirectory();
+					}
+					catch {
+						return false;
+					}
+				});
+				for (const projectDir of projectDirs) {
+					const projectStorage = join(projectRoot, projectDir, OPENCODE_STORAGE_DIR_NAME);
+					if (!existsSync(projectStorage)) continue;
+					try {
+						const entries = loadStorageData(projectStorage);
+						allEntries.push(...entries);
+						if (!suppressLogs && entries.length > 0) {
+							logger.debug(`Loaded ${entries.length} OpenCode entries from project storage layout: ${projectStorage}`);
+						}
+					}
+					catch (error) {
+						logger.warn('Error reading OpenCode project storage:', error);
+					}
+				}
+			}
+			catch (error) {
+				logger.warn('Error scanning OpenCode project storage root:', error);
 			}
 		}
 		// Fallback to legacy projects/ JSONL layout if storage doesn't exist

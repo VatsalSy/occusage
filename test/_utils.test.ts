@@ -38,6 +38,8 @@ describe('Utility Functions', () => {
 	it('formatModelName should format model names correctly', () => {
 		expect(formatModelName('claude-sonnet-4-20250514')).toBe('sonnet-4');
 		expect(formatModelName('claude-opus-4-20250514')).toBe('opus-4');
+		expect(formatModelName('anthropic/claude-sonnet-4-20250514')).toBe('sonnet-4');
+		expect(formatModelName('openai/gpt-4o')).toBe('gpt-4o');
 		// Fallback: non-matching patterns should be returned unchanged
 		expect(formatModelName('random-model-name')).toBe('random-model-name');
 		expect(formatModelName('gpt-4')).toBe('gpt-4');

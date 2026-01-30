@@ -314,21 +314,29 @@ export function formatCurrency(amount: number): string {
 }
 
 /**
- * Formats Claude model names into a shorter, more readable format
- * Extracts model type and generation from full model name
+ * Formats model names into a shorter, more readable format
+ * Extracts Claude model type and generation from full model name
  * @param modelName - Full model name (e.g., "claude-sonnet-4-20250514")
  * @returns Shortened model name (e.g., "sonnet-4") or original if pattern doesn't match
  */
 export function formatModelName(modelName: string): string {
+	let cleaned = modelName.trim();
+	// Strip known provider prefixes for display (keep original casing in remainder)
+	let prev: string | null = null;
+	while (prev !== cleaned) {
+		prev = cleaned;
+		cleaned = cleaned.replace(/^(anthropic|openai|openrouter|bedrock|vertex|azure|google|google-ai-studio)[/:]/i, '');
+	}
+
 	// Extract model type from full model name
 	// e.g., "claude-sonnet-4-20250514" -> "sonnet-4"
 	// e.g., "claude-opus-4-20250514" -> "opus-4"
-	const match = modelName.match(/claude-(\w+)-(\d+)-\d+/);
+	const match = cleaned.toLowerCase().match(/claude-(\w+)-(\d+)-\d+/);
 	if (match != null) {
 		return `${match[1]}-${match[2]}`;
 	}
 	// Return original if pattern doesn't match
-	return modelName;
+	return cleaned;
 }
 
 /**
@@ -449,10 +457,10 @@ export function pushBreakdownRows(
 
 /**
  * Format source indicators for display with colors
- * @param sources - Array of data sources (claude or opencode)
+ * @param sources - Array of data sources (claude, opencode, codex)
  * @returns Formatted source string with colored indicators
  */
-export function formatSources(sources: Array<'claude' | 'opencode' | string>): string {
+export function formatSources(sources: Array<'claude' | 'opencode' | 'codex' | string>): string {
 	if (sources == null || sources.length === 0) {
 		return '-';
 	}
@@ -462,6 +470,9 @@ export function formatSources(sources: Array<'claude' | 'opencode' | string>): s
 		}
 		if (s === 'opencode') {
 			return pc.green('[O]');
+		}
+		if (s === 'codex') {
+			return pc.magenta('[X]');
 		}
 		// Fallback for any other source
 		return `[${s}]`;
