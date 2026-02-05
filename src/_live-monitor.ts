@@ -16,6 +16,7 @@ import { loadOpenCodeData } from './_opencode-loader.ts';
 import { loadCodexData } from './_codex-loader.ts';
 import { identifySessionBlocks } from './_session-blocks.ts';
 import { matchesModelFamily } from './_model-utils.ts';
+import { getTotalTokens } from './_token-utils.ts';
 import {
 	calculateCostForEntry,
 	createUniqueHash,
@@ -26,6 +27,50 @@ import {
 } from './data-loader.ts';
 import { PricingFetcher } from './pricing-fetcher.ts';
 import { logger } from './logger.ts';
+
+const TODAY_SUMMARY_TTL_MS = 60_000;
+const TODAY_SUMMARY_STALE_MS = 10 * 60_000;
+
+type TodaySummaryCache = {
+	tokens: number;
+	cost: number;
+	lastUpdated: number;
+	dayKey: string;
+	hasData: boolean;
+};
+
+const formatTodayTokens = (tokens: number): string => {
+	if (tokens >= 1_000_000) {
+		return `${(tokens / 1_000_000).toFixed(1)}M`;
+	}
+	if (tokens >= 100_000) {
+		return `${(tokens / 1_000).toFixed(0)}K`;
+	}
+	return `${(tokens / 1_000).toFixed(1)}K`;
+};
+
+const formatTodayCost = (cost: number): string => {
+	return `$${cost.toFixed(2)}`;
+};
+
+const formatTodaySummary = (tokens: number, cost: number, isFresh: boolean): string => {
+	const parts: string[] = [];
+	if (tokens > 0) {
+		parts.push(`🔥 ${formatTodayTokens(tokens)}`);
+	}
+	if (cost > 0) {
+		parts.push(`💸 ${formatTodayCost(cost)}`);
+	}
+	const dot = isFresh ? '●' : '○';
+	return `${parts.join(' ')} ${dot}`.trim();
+};
+
+const getLocalDayKey = (date: Date): string => {
+	const year = date.getFullYear();
+	const month = `${date.getMonth() + 1}`.padStart(2, '0');
+	const day = `${date.getDate()}`.padStart(2, '0');
+	return `${year}${month}${day}`;
+};
 
 /**
  * Configuration for live monitoring
@@ -55,6 +100,13 @@ export class LiveMonitor implements Disposable {
 	private lastCodexLoadTime = 0;
 	private codexHashes = new Set<string>();
 	private cachedActiveBlock: SessionBlock | null = null;
+	private todaySummaryCache: TodaySummaryCache = {
+		tokens: 0,
+		cost: 0,
+		lastUpdated: 0,
+		dayKey: '',
+		hasData: false,
+	};
 
 	constructor(config: LiveMonitorConfig) {
 		this.config = config;
@@ -69,6 +121,35 @@ export class LiveMonitor implements Disposable {
 	 */
 	[Symbol.dispose](): void {
 		this.fetcher?.[Symbol.dispose]();
+	}
+
+	/**
+	 * Returns today's token/cost summary for live display.
+	 * Cached to avoid re-scanning entries on every frame.
+	 */
+	getTodaySummary(): string | null {
+		const now = new Date();
+		const nowMs = now.getTime();
+		const dayKey = getLocalDayKey(now);
+		const cache = this.todaySummaryCache;
+		const shouldRefresh = cache.dayKey !== dayKey
+			|| nowMs - cache.lastUpdated >= TODAY_SUMMARY_TTL_MS;
+
+		if (shouldRefresh) {
+			const totals = this.calculateTodayTotals(now);
+			cache.tokens = totals.tokens;
+			cache.cost = totals.cost;
+			cache.hasData = totals.tokens > 0 || totals.cost > 0;
+			cache.lastUpdated = nowMs;
+			cache.dayKey = dayKey;
+		}
+
+		if (!cache.hasData) {
+			return null;
+		}
+
+		const isFresh = nowMs - cache.lastUpdated < TODAY_SUMMARY_STALE_MS;
+		return formatTodaySummary(cache.tokens, cache.cost, isFresh);
 	}
 
 	/**
@@ -374,6 +455,26 @@ export class LiveMonitor implements Disposable {
 		}
 
 		return null;
+	}
+
+	private calculateTodayTotals(now: Date): { tokens: number; cost: number } {
+		const startOfDay = new Date(now.getTime());
+		startOfDay.setHours(0, 0, 0, 0);
+		const endOfDay = new Date(startOfDay.getTime());
+		endOfDay.setDate(endOfDay.getDate() + 1);
+
+		let tokens = 0;
+		let cost = 0;
+
+		for (const entry of this.allEntries) {
+			const timestamp = entry.timestamp.getTime();
+			if (timestamp >= startOfDay.getTime() && timestamp < endOfDay.getTime()) {
+				tokens += getTotalTokens(entry.usage);
+				cost += entry.costUSD;
+			}
+		}
+
+		return { tokens, cost };
 	}
 
 	/**

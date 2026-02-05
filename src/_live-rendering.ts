@@ -115,12 +115,17 @@ export async function renderWaitingState(terminal: TerminalManager, config: Live
  * Displays the live monitoring dashboard for active Claude session
  * Uses buffering and sync mode to prevent screen flickering
  */
-export function renderActiveBlock(terminal: TerminalManager, activeBlock: SessionBlock, config: LiveMonitoringConfig): void {
+export function renderActiveBlock(
+	terminal: TerminalManager,
+	activeBlock: SessionBlock,
+	config: LiveMonitoringConfig,
+	todaySummary?: string | null,
+): void {
 	// Use buffering + sync mode for smooth, flicker-free updates
 	terminal.startBuffering();
 	terminal.write(ansiEscapes.cursorTo(0, 0)); // Move to home position
 	terminal.write(ansiEscapes.eraseDown); // Clear screen content
-	renderLiveDisplay(terminal, activeBlock, config);
+	renderLiveDisplay(terminal, activeBlock, config, todaySummary);
 	terminal.write(ansiEscapes.cursorHide); // Ensure cursor stays hidden
 	terminal.flush(); // Send all updates atomically
 }
@@ -138,7 +143,12 @@ export function formatTokensShort(num: number): string {
 /**
  * Renders the live display for an active session block
  */
-export function renderLiveDisplay(terminal: TerminalManager, block: SessionBlock, config: LiveMonitoringConfig): void {
+export function renderLiveDisplay(
+	terminal: TerminalManager,
+	block: SessionBlock,
+	config: LiveMonitoringConfig,
+	todaySummary?: string | null,
+): void {
 	const width = terminal.width;
 	const now = new Date();
 
@@ -154,7 +164,7 @@ export function renderLiveDisplay(terminal: TerminalManager, block: SessionBlock
 
 	// Use compact mode for narrow terminals
 	if (width < 60) {
-		renderCompactLiveDisplay(terminal, block, config, totalTokens, elapsed, remaining);
+		renderCompactLiveDisplay(terminal, block, config, totalTokens, elapsed, remaining, todaySummary);
 		return;
 	}
 
@@ -469,27 +479,37 @@ export function renderLiveDisplay(terminal: TerminalManager, block: SessionBlock
 		terminal.write(`${marginStr}│${' '.repeat(boxWidth - 2)}│\n`);
 	}
 
-	// Models section
-	if (block.models.length > 0) {
+	// Models + Today section
+	const hasModels = block.models.length > 0;
+	const hasTodaySummary = todaySummary != null;
+	if (hasModels || hasTodaySummary) {
 		terminal.write(`${marginStr}├${'─'.repeat(boxWidth - 2)}┤\n`);
 
-		// Format sources with colors
-		const sourcesDisplay = block.sources.map((source) => {
-			switch (source) {
-				case 'claude':
-					return pc.blue('[C]');
-				case 'opencode':
-					return pc.green('[O]');
-				case 'codex':
-					return pc.magenta('[X]');
-				default:
-					return pc.gray('[?]');
-			}
-		}).join(' ');
+		if (hasModels) {
+			// Format sources with colors
+			const sourcesDisplay = block.sources.map((source) => {
+				switch (source) {
+					case 'claude':
+						return pc.blue('[C]');
+					case 'opencode':
+						return pc.green('[O]');
+					case 'codex':
+						return pc.magenta('[X]');
+					default:
+						return pc.gray('[?]');
+				}
+			}).join(' ');
 
-		const modelsLine = `${drawEmoji('⚙️')}  Models: ${formatModelsDisplay(block.models)}${sourcesDisplay.length > 0 ? `  ${sourcesDisplay}` : ''}`;
-		const modelsLinePadded = modelsLine + ' '.repeat(Math.max(0, boxWidth - 3 - stringWidth(modelsLine)));
-		terminal.write(`${marginStr}│ ${modelsLinePadded}│\n`);
+			const modelsLine = `${drawEmoji('⚙️')}  Models: ${formatModelsDisplay(block.models)}${sourcesDisplay.length > 0 ? `  ${sourcesDisplay}` : ''}`;
+			const modelsLinePadded = modelsLine + ' '.repeat(Math.max(0, boxWidth - 3 - stringWidth(modelsLine)));
+			terminal.write(`${marginStr}│ ${modelsLinePadded}│\n`);
+		}
+
+		if (hasTodaySummary) {
+			const todayLine = `${drawEmoji('📅')}  Today: ${todaySummary}`;
+			const todayLinePadded = todayLine + ' '.repeat(Math.max(0, boxWidth - 3 - stringWidth(todayLine)));
+			terminal.write(`${marginStr}│ ${todayLinePadded}│\n`);
+		}
 	}
 
 	// Footer
@@ -509,6 +529,7 @@ export function renderCompactLiveDisplay(
 	totalTokens: number,
 	elapsed: number,
 	remaining: number,
+	todaySummary?: string | null,
 ): void {
 	const width = terminal.width;
 
@@ -532,6 +553,11 @@ export function renderCompactLiveDisplay(
 
 	// Cost
 	terminal.write(`Cost: ${formatCurrency(block.costUSD)}\n`);
+
+	// Today summary
+	if (todaySummary != null) {
+		terminal.write(`Today: ${todaySummary}\n`);
+	}
 
 	// Burn rate
 	const burnRate = calculateBurnRate(block);

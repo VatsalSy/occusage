@@ -77,8 +77,9 @@ export async function startLiveMonitoring(config: LiveMonitoringConfig): Promise
 					continue;
 				}
 
-				// Render active block
-				renderActiveBlock(terminal, activeBlock, config);
+				// Render active block with today's summary
+				const todaySummary = monitor.getTodaySummary();
+				renderActiveBlock(terminal, activeBlock, config, todaySummary);
 				lastRenderTime = Date.now();
 
 				// Wait before next refresh (refreshInterval passed, aborted, or terminal resized)
