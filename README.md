@@ -227,10 +227,10 @@ bun run start project --json
 ### Advanced Capabilities
 - **🔴 Live Monitoring**: Real-time usage dashboard with burn rate calculations
 - **🤖 Model Tracking**: Distinguish Claude Opus/Sonnet and OpenAI GPT/reasoning models
-- **💰 Cost Analysis**: Accurate USD cost calculations using LiteLLM pricing
+- **💰 Cost Analysis**: Accurate USD cost calculations using a bundled pricing snapshot
 - **🔄 Cache Metrics**: Track cache creation and read tokens
 - **📱 Responsive Display**: Automatic layout adjustment for terminal width
-- **🌐 Offline Mode**: Use cached pricing data without network access
+- **🌐 Offline Mode**: Use bundled or cached pricing data without network access
 - **🎨 Beautiful Output**: Color-coded tables with smart formatting
 
 ### OpenCode, Claude Code & Codex Integration
@@ -298,6 +298,14 @@ export CLAUDE_CONFIG_DIR="/path1,/path2"
 # Logging level (0=silent, 5=trace)
 export LOG_LEVEL=0
 ```
+
+### Pricing Data
+`occusage` now vendors model pricing in `src/data/model-pricing.json` instead of fetching it from LiteLLM at runtime.
+
+To update pricing:
+1. Check Anthropic and OpenAI pricing pages for changes to the models you use.
+2. Update the matching entries in `src/data/model-pricing.json`.
+3. Review the diff and run the test suite before committing the snapshot change.
 
 ### Cost Calculation Modes
 ```bash

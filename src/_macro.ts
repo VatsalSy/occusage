@@ -1,27 +1,22 @@
 /**
- * Prefetch claude data for the current user.
+ * Prefetch bundled model pricing data for supported model families.
  */
 
 import type { ModelPricing } from './_types.ts';
-import { LITELLM_PRICING_URL } from './_consts.ts';
+import { loadBundledModelPricing } from './_pricing-data.ts';
 import { modelPricingSchema } from './_types.ts';
 import { isClaudeModel, isOpenAIModel, normalizeModelId } from './_model-utils.ts';
 
 /**
- * Prefetches the pricing data for Claude and OpenAI models from the LiteLLM API.
- * This function fetches the pricing data and filters out relevant model families.
+ * Prefetches the bundled pricing data for Claude and OpenAI models.
+ * This function loads the local pricing snapshot and filters out relevant model families.
  * It returns a record of model names to their pricing information.
  *
  * @returns A promise that resolves to a record of model names and their pricing information.
- * @throws Will throw an error if the fetch operation fails.
+ * @throws Will throw an error if the bundled pricing data cannot be read.
  */
 export async function prefetchClaudePricing(): Promise<Record<string, ModelPricing>> {
-	const response = await fetch(LITELLM_PRICING_URL);
-	if (!response.ok) {
-		throw new Error(`Failed to fetch pricing data: ${response.statusText}`);
-	}
-
-	const data = await response.json() as Record<string, unknown>;
+	const data = await loadBundledModelPricing() as Record<string, unknown>;
 
 	const prefetchClaudeData: Record<string, ModelPricing> = {};
 

@@ -35,7 +35,7 @@ bun test test/specific.test.ts # Run single test file
 
 ### Core Data Flow
 1. **Data Loading** (`data-loader.ts`): Loads JSONL from OpenCode/Claude Code directories
-2. **Cost Calculation** (`calculate-cost.ts`): Uses LiteLLM pricing with token counting
+2. **Cost Calculation** (`calculate-cost.ts`): Uses bundled model pricing with token counting
 3. **Processing Modules**:
    - `_session-blocks.ts`: 5-hour billing windows
    - `_live-monitor.ts`: Real-time usage tracking

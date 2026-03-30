@@ -1185,7 +1185,7 @@ export type LoadOptions = {
 	mode?: CostMode; // Cost calculation mode
 	order?: SortOrder; // Sort order for dates
 	offline?: boolean; // Use offline mode for pricing
-	forceRefreshPricing?: boolean; // Force refresh pricing data from API
+	forceRefreshPricing?: boolean; // Reload bundled pricing data instead of using persistent cache
 	noCache?: boolean; // Disable all caching for this run
 	sessionDurationHours?: number; // Session block duration in hours
 	groupByProject?: boolean; // Group data by project instead of aggregating

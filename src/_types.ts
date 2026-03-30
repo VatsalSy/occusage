@@ -132,7 +132,7 @@ export const SortOrders = ['desc', 'asc'] as const;
 export type SortOrder = TupleToUnion<typeof SortOrders>;
 
 /**
- * Zod schema for model pricing information from LiteLLM
+ * Zod schema for bundled model pricing information
  */
 export const modelPricingSchema = z.object({
 	input_cost_per_token: z.number().optional(),

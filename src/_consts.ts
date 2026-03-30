@@ -2,10 +2,9 @@ import { homedir } from 'node:os';
 import { xdgConfig } from 'xdg-basedir';
 
 /**
- * URL for LiteLLM's model pricing and context window data
+ * Bundled model pricing data snapshot used for local cost calculation.
  */
-export const LITELLM_PRICING_URL
-	= 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
+export const MODEL_PRICING_DATA_URL = new URL('./data/model-pricing.json', import.meta.url);
 
 /**
  * Default number of recent days to include when filtering blocks

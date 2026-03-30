@@ -71,8 +71,8 @@ type MismatchStats = {
  * Compares pre-calculated costUSD values with costs calculated from token usage
  * @param claudePath - Optional path to Claude data directory
  * @param opts - Configuration options for debug behavior
- * @param opts.offline - Whether to use pre-fetched pricing data instead of fetching from API
- * @param opts.forceRefreshPricing - Whether to bypass cache and force refresh pricing data
+ * @param opts.offline - Whether to use the bundled pricing snapshot directly
+ * @param opts.forceRefreshPricing - Whether to bypass persistent cache and reload bundled pricing
  * @param opts.noCache - Whether to disable persistent caching for this instance
  * @returns Statistics about pricing mismatches found
  *
@@ -322,4 +322,3 @@ export function printMismatchReport(
 		}
 	}
 }
-

@@ -73,8 +73,7 @@ describe('pricing-fetcher', () => {
 	});
 
 	describe('fetchModelPricing', () => {
-		it('should fetch and parse pricing data from LiteLLM', async () => {
-			// This test may fail due to network issues - that's expected
+		it('should load and parse bundled pricing data', async () => {
 			await using fetcher = new PricingFetcher(true); // Use offline mode for tests
 			const result = await fetcher.fetchModelPricing();
 			const pricing = Result.unwrap(result);

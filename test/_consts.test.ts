@@ -6,7 +6,7 @@ import {
 	CLAUDE_PROJECTS_DIR_NAME,
 	USAGE_DATA_GLOB_PATTERN,
 	USER_HOME_DIR,
-	LITELLM_PRICING_URL,
+	MODEL_PRICING_DATA_URL,
 	DEFAULT_RECENT_DAYS,
 	DEFAULT_OPENCODE_DATA_PATH,
 	OPENCODE_DATA_DIR_ENV,
@@ -23,7 +23,7 @@ describe('_consts', () => {
 		expect(typeof CLAUDE_PROJECTS_DIR_NAME).toBe('string');
 		expect(typeof USAGE_DATA_GLOB_PATTERN).toBe('string');
 		expect(typeof USER_HOME_DIR).toBe('string');
-		expect(typeof LITELLM_PRICING_URL).toBe('string');
+		expect(MODEL_PRICING_DATA_URL).toBeInstanceOf(URL);
 		expect(typeof DEFAULT_OPENCODE_DATA_PATH).toBe('string');
 		expect(typeof OPENCODE_DATA_DIR_ENV).toBe('string');
 		expect(typeof OPENCODE_PROJECTS_DIR_NAME).toBe('string');
@@ -38,8 +38,8 @@ describe('_consts', () => {
 		expect(DEBUG_MATCH_THRESHOLD_PERCENT).toBeGreaterThan(0);
 	});
 
-	it('should have valid URL format', () => {
-		expect(LITELLM_PRICING_URL).toMatch(/^https?:\/\//);
+	it('should have valid pricing data path', () => {
+		expect(MODEL_PRICING_DATA_URL.pathname).toContain('/src/data/model-pricing.json');
 	});
 
 	it('should have valid glob pattern', () => {

@@ -69,7 +69,7 @@ All commands support these shared options:
    - Aggregates data by date, session, or project
 
 2. **Cost Calculation** (`calculate-cost.ts`):
-   - Uses LiteLLM pricing data (`pricing-fetcher.ts`)
+   - Uses bundled model pricing data (`pricing-fetcher.ts`)
    - Calculates costs from token counts or uses pre-calculated values
    - Supports multiple models (Claude 4 Opus, Sonnet)
 
