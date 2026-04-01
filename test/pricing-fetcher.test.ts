@@ -79,10 +79,43 @@ describe('pricing-fetcher', () => {
 			const pricing = Result.unwrap(result);
 			expect(pricing).toBeInstanceOf(Map);
 			expect(pricing.size).toBeGreaterThan(0);
+			expect(pricing.get('gpt-5')).toEqual({
+				input_cost_per_token: 0.00000125,
+				output_cost_per_token: 0.00001,
+				cache_read_input_token_cost: 0.000000125,
+			});
+		});
+
+		it('should remap dated model snapshots to bundled pricing entries', async () => {
+			await using fetcher = new PricingFetcher(true);
+			const result = await fetcher.getModelPricing('openai/gpt-5-2025-08-07');
+			expect(Result.unwrap(result)).toEqual({
+				input_cost_per_token: 0.00000125,
+				output_cost_per_token: 0.00001,
+				cache_read_input_token_cost: 0.000000125,
+			});
+		});
+
+		it('should calculate costs for newer Codex model IDs', async () => {
+			await using fetcher = new PricingFetcher(true);
+			const result = await fetcher.calculateCostFromTokens({
+				input_tokens: 1000,
+				output_tokens: 500,
+			}, 'gpt-5.1-codex-mini');
+			const cost = Result.unwrap(result);
+			expect(cost).toBeCloseTo(0.00125);
+		});
+
+		it('should prefer the most specific bundled match for codex snapshot aliases', async () => {
+			await using fetcher = new PricingFetcher(true);
+			const result = await fetcher.getModelPricing('gpt-5.1-codex-mini-2026-01-01');
+			expect(Result.unwrap(result)).toEqual({
+				input_cost_per_token: 0.00000025,
+				output_cost_per_token: 0.000002,
+				cache_read_input_token_cost: 0.000000025,
+			});
 		});
 	});
 
-	// Additional tests would be extracted from source file
+	// Note: These pricing-fetcher tests run in offline mode using bundled pricing data.
 });
-
-// Note: Many pricing-fetcher tests require network access and may fail in CI

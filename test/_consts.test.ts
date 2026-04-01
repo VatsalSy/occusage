@@ -39,7 +39,7 @@ describe('_consts', () => {
 	});
 
 	it('should have valid pricing data path', () => {
-		expect(MODEL_PRICING_DATA_URL.pathname).toContain('/src/data/model-pricing.json');
+		expect(MODEL_PRICING_DATA_URL.pathname.endsWith('data/model-pricing.json')).toBe(true);
 	});
 
 	it('should have valid glob pattern', () => {

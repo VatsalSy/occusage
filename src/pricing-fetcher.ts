@@ -20,13 +20,40 @@ import { getGlobalCacheManager } from './_cache-manager.ts';
  * @returns Model name with provider prefixes removed
  */
 export function stripProviderPrefix(value: string): string {
-	let v = value;
+	let v = value.trim().toLowerCase();
 	let prev: string | null = null;
 	while (prev !== v) {
 		prev = v;
 		v = v.replace(/^(anthropic|openai|openrouter|bedrock|vertex|azure|google|google-ai-studio)[/:]/i, '');
 	}
 	return v;
+}
+
+function stripSnapshotSuffix(value: string): string {
+	return value
+		.replace(/-\d{4}-\d{2}-\d{2}$/u, '')
+		.replace(/-\d{8}$/u, '');
+}
+
+function getPricingLookupCandidates(modelName: string): string[] {
+	const raw = modelName.trim().toLowerCase();
+	const normalized = stripProviderPrefix(raw);
+	const strippedRaw = stripSnapshotSuffix(raw);
+	const strippedNormalized = stripSnapshotSuffix(normalized);
+	const candidates = new Set<string>();
+
+	for (const variant of [raw, normalized, strippedRaw, strippedNormalized]) {
+		if (variant === '') {
+			continue;
+		}
+		candidates.add(variant);
+		candidates.add(`openai/${variant}`);
+		candidates.add(`openai:${variant}`);
+		candidates.add(`anthropic/${variant}`);
+		candidates.add(`anthropic:${variant}`);
+	}
+
+	return [...candidates];
 }
 
 /**
@@ -173,44 +200,25 @@ export class PricingFetcher implements Disposable {
 			Result.map((pricing) => {
 				const normalizedModelName = stripProviderPrefix(modelName);
 
-				// Direct match
-				const directMatch = pricing.get(modelName);
-				if (directMatch != null) {
-					return directMatch;
-				}
-				const normalizedDirect = pricing.get(normalizedModelName);
-				if (normalizedDirect != null) {
-					return normalizedDirect;
-				}
-
-				// Try with provider prefix variations
-				const variations = [
-					modelName,
-					normalizedModelName,
-					`openai/${normalizedModelName}`,
-					`openai:${normalizedModelName}`,
-					`anthropic/${normalizedModelName}`,
-					`claude-3-5-${normalizedModelName}`,
-					`claude-3-${normalizedModelName}`,
-					`claude-${normalizedModelName}`,
-				];
-
-				for (const variant of variations) {
+				for (const variant of getPricingLookupCandidates(modelName)) {
 					const match = pricing.get(variant);
 					if (match != null) {
 						return match;
 					}
 				}
 
-				// Try to find partial matches (e.g., "gpt-4" might match "gpt-4-0125-preview")
-				const lowerModel = modelName.toLowerCase();
-				for (const [key, value] of pricing) {
-					if (
-						key.toLowerCase().includes(lowerModel)
-						|| lowerModel.includes(key.toLowerCase())
-					) {
-						return value;
-					}
+				// Keep a final fuzzy fallback for older model identifiers that share a stable family prefix.
+				// Prefer the longest match so snapshot-style aliases resolve to the most specific priced model.
+				const lowerModel = stripSnapshotSuffix(normalizedModelName);
+				const partialMatches = [...pricing.entries()]
+					.filter(([key]) => {
+						const lowerKey = key.toLowerCase();
+						return lowerKey.includes(lowerModel) || lowerModel.includes(lowerKey);
+					})
+					.sort(([left], [right]) => right.length - left.length);
+
+				if (partialMatches.length > 0) {
+					return partialMatches[0]![1];
 				}
 
 				return null;
