@@ -85,12 +85,12 @@ export const sharedArgs = {
 		type: 'boolean',
 		negatable: true,
 		short: 'O',
-		description: 'Use cached pricing data for Claude models instead of fetching from API',
+		description: 'Use bundled pricing data directly instead of refreshing from persistent cache',
 		default: false,
 	},
 	forceRefreshPricing: {
 		type: 'boolean',
-		description: 'Force refresh pricing data from API, bypassing persistent cache (ignored when --offline is set)',
+		description: 'Bypass persistent cache and reload bundled pricing data (ignored when --offline is set)',
 		default: false,
 	},
 	noCache: {

@@ -48,7 +48,7 @@ test/
 - **`_session-blocks.test.ts`**: 5-hour billing window identification, burn rate calculations
 
 ### 2. Integration & External Services
-- **`pricing-fetcher.test.ts`**: LiteLLM pricing API integration, offline mode, cost calculations
+- **`pricing-fetcher.test.ts`**: Bundled pricing loading, offline mode, cost calculations
 - **`_opencode-loader.test.ts`**: OpenCode project path encoding/decoding, legacy compatibility
 - **`debug.test.ts`**: Cost mismatch detection, pricing validation
 

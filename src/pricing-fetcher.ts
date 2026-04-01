@@ -2,7 +2,7 @@
  * @fileoverview Model pricing data fetcher for cost calculations
  *
  * This module provides a PricingFetcher class that retrieves and caches
- * model pricing information from LiteLLM's pricing database for accurate
+ * bundled model pricing information for accurate
  * cost calculations based on token usage.
  *
  * @module pricing-fetcher
@@ -10,9 +10,7 @@
 
 import type { ModelPricing } from './_types.ts';
 import { Result } from '@praha/byethrow';
-import { LITELLM_PRICING_URL } from './_consts.ts';
-import { prefetchClaudePricing } from './_macro.ts' with { type: 'macro' };
-import { modelPricingSchema } from './_types.ts';
+import { loadBundledModelPricing } from './_pricing-data.ts';
 import { logger } from './logger.ts';
 import { getGlobalCacheManager } from './_cache-manager.ts';
 
@@ -22,7 +20,7 @@ import { getGlobalCacheManager } from './_cache-manager.ts';
  * @returns Model name with provider prefixes removed
  */
 export function stripProviderPrefix(value: string): string {
-	let v = value;
+	let v = value.trim().toLowerCase();
 	let prev: string | null = null;
 	while (prev !== v) {
 		prev = v;
@@ -31,8 +29,35 @@ export function stripProviderPrefix(value: string): string {
 	return v;
 }
 
+function stripSnapshotSuffix(value: string): string {
+	return value
+		.replace(/-\d{4}-\d{2}-\d{2}$/u, '')
+		.replace(/-\d{8}$/u, '');
+}
+
+function getPricingLookupCandidates(modelName: string): string[] {
+	const raw = modelName.trim().toLowerCase();
+	const normalized = stripProviderPrefix(raw);
+	const strippedRaw = stripSnapshotSuffix(raw);
+	const strippedNormalized = stripSnapshotSuffix(normalized);
+	const candidates = new Set<string>();
+
+	for (const variant of [raw, normalized, strippedRaw, strippedNormalized]) {
+		if (variant === '') {
+			continue;
+		}
+		candidates.add(variant);
+		candidates.add(`openai/${variant}`);
+		candidates.add(`openai:${variant}`);
+		candidates.add(`anthropic/${variant}`);
+		candidates.add(`anthropic:${variant}`);
+	}
+
+	return [...candidates];
+}
+
 /**
- * Fetches and caches model pricing information from LiteLLM
+ * Loads and caches bundled model pricing information
  * Implements Disposable pattern for automatic resource cleanup
  */
 export class PricingFetcher implements Disposable {
@@ -45,8 +70,8 @@ export class PricingFetcher implements Disposable {
 
 	/**
 	 * Creates a new PricingFetcher instance
-	 * @param offline - Whether to use pre-fetched pricing data instead of fetching from API
-	 * @param forceRefresh - Whether to bypass cache and force refresh pricing data
+	 * @param offline - Whether to use the bundled pricing snapshot directly
+	 * @param forceRefresh - Whether to bypass the persistent cache and reload bundled pricing
 	 * @param noCache - Whether to disable all caching for this instance
 	 */
 	constructor(offline = false, forceRefresh = false, noCache = false) {
@@ -80,43 +105,21 @@ export class PricingFetcher implements Disposable {
 	}
 
 	/**
-	 * Loads offline pricing data from pre-fetched cache
+	 * Loads bundled pricing data from the vendored snapshot
 	 * @returns Map of model names to pricing information
 	 */
-	private loadOfflinePricing = Result.try({
+	private loadBundledPricing = Result.try({
 		try: async () => {
-			const pricing = new Map(Object.entries(await prefetchClaudePricing()));
+			const pricing = new Map(Object.entries(await loadBundledModelPricing()));
 			this.cachedPricing = pricing;
 			this.cacheTimestamp = Date.now();
 			return pricing;
 		},
-		catch: error => new Error('Failed to load offline pricing data', { cause: error }),
+		catch: error => new Error('Failed to load bundled pricing data', { cause: error }),
 	});
 
 	/**
-	 * Handles fallback to offline pricing when network fetch fails
-	 * @param originalError - The original error from the network fetch
-	 * @returns Map of model names to pricing information
-	 * @throws Error if both network fetch and fallback fail
-	 */
-	private async handleFallbackToCachedPricing(originalError: unknown): Result.ResultAsync<Map<string, ModelPricing>, Error> {
-		logger.warn('Failed to fetch model pricing from LiteLLM, falling back to cached pricing data');
-		logger.debug('Fetch error details:', originalError);
-		return Result.pipe(
-			this.loadOfflinePricing(),
-			Result.inspect((pricing) => {
-				logger.info(`Using cached pricing data for ${pricing.size} models`);
-			}),
-			Result.inspectError((error) => {
-				logger.error('Failed to load cached pricing data as fallback:', error);
-				logger.error('Original fetch error:', originalError);
-			}),
-		);
-	}
-
-	/**
-	 * Ensures pricing data is loaded, either from cache or by fetching
-	 * Uses persistent cache with TTL, automatically falls back to offline mode if needed
+	 * Ensures pricing data is loaded from memory, persistent cache, or the bundled snapshot
 	 * @returns Map of model names to pricing information
 	 */
 	private async ensurePricingLoaded(): Result.ResultAsync<Map<string, ModelPricing>, Error> {
@@ -148,59 +151,30 @@ export class PricingFetcher implements Disposable {
 					}
 				}
 
-				// If we're in offline mode, return pre-fetched data
+				// Offline mode always uses the bundled snapshot directly
 				if (this.offline) {
-					return this.loadOfflinePricing();
+					return this.loadBundledPricing();
 				}
 
-				// Fetch fresh data from API
-				logger.info('Fetching latest model pricing from LiteLLM...');
+				// Load the bundled snapshot directly when bypassing persistent cache
+				logger.info('Loading bundled model pricing snapshot...');
 				return Result.pipe(
-					Result.try({
-						try: fetch(LITELLM_PRICING_URL),
-						catch: error => new Error('Failed to fetch model pricing from LiteLLM', { cause: error }),
-					}),
-					Result.andThrough((response) => {
-						if (!response.ok) {
-							return Result.fail(new Error(`Failed to fetch pricing data: ${response.statusText}`));
-						}
-						return Result.succeed();
-					}),
-					Result.andThen(async response => Result.try({
-						try: response.json() as Promise<Record<string, unknown>>,
-						catch: error => new Error('Failed to parse pricing data', { cause: error }),
-					})),
-					Result.map((data) => {
-						const pricing = new Map<string, ModelPricing>();
-						for (const [modelName, modelData] of Object.entries(data)) {
-							if (typeof modelData === 'object' && modelData !== null) {
-								const parsed = modelPricingSchema.safeParse(modelData);
-								if (parsed.success) {
-									pricing.set(modelName, parsed.data);
-								}
-								// Skip models that don't match our schema
-							}
-						}
-						return pricing;
-					}),
+					this.loadBundledPricing(),
 					Result.andThen(async (pricing) => {
-						this.cachedPricing = pricing;
-						this.cacheTimestamp = Date.now();
 						// Store in persistent cache (unless noCache is enabled)
 						if (!this.noCache) {
 							try {
 								await cacheManager.setPricing(pricing);
-								logger.info(`Loaded and cached pricing for ${pricing.size} models`);
+								logger.info(`Loaded and cached bundled pricing for ${pricing.size} models`);
 							} catch (error) {
 								logger.error('Failed to write pricing to persistent cache:', error);
 								return Result.fail(new Error('Failed to cache pricing data', { cause: error }));
 							}
 						} else {
-							logger.info(`Loaded pricing for ${pricing.size} models (cache disabled)`);
+							logger.info(`Loaded bundled pricing for ${pricing.size} models (cache disabled)`);
 						}
 						return Result.succeed(pricing);
 					}),
-					Result.orElse(async error => this.handleFallbackToCachedPricing(error)),
 				);
 			}),
 		);
@@ -226,44 +200,25 @@ export class PricingFetcher implements Disposable {
 			Result.map((pricing) => {
 				const normalizedModelName = stripProviderPrefix(modelName);
 
-				// Direct match
-				const directMatch = pricing.get(modelName);
-				if (directMatch != null) {
-					return directMatch;
-				}
-				const normalizedDirect = pricing.get(normalizedModelName);
-				if (normalizedDirect != null) {
-					return normalizedDirect;
-				}
-
-				// Try with provider prefix variations
-				const variations = [
-					modelName,
-					normalizedModelName,
-					`openai/${normalizedModelName}`,
-					`openai:${normalizedModelName}`,
-					`anthropic/${normalizedModelName}`,
-					`claude-3-5-${normalizedModelName}`,
-					`claude-3-${normalizedModelName}`,
-					`claude-${normalizedModelName}`,
-				];
-
-				for (const variant of variations) {
+				for (const variant of getPricingLookupCandidates(modelName)) {
 					const match = pricing.get(variant);
 					if (match != null) {
 						return match;
 					}
 				}
 
-				// Try to find partial matches (e.g., "gpt-4" might match "gpt-4-0125-preview")
-				const lowerModel = modelName.toLowerCase();
-				for (const [key, value] of pricing) {
-					if (
-						key.toLowerCase().includes(lowerModel)
-						|| lowerModel.includes(key.toLowerCase())
-					) {
-						return value;
-					}
+				// Keep a final fuzzy fallback for older model identifiers that share a stable family prefix.
+				// Prefer the longest match so snapshot-style aliases resolve to the most specific priced model.
+				const lowerModel = stripSnapshotSuffix(normalizedModelName);
+				const partialMatches = [...pricing.entries()]
+					.filter(([key]) => {
+						const lowerKey = key.toLowerCase();
+						return lowerKey.includes(lowerModel) || lowerModel.includes(lowerKey);
+					})
+					.sort(([left], [right]) => right.length - left.length);
+
+				if (partialMatches.length > 0) {
+					return partialMatches[0]![1];
 				}
 
 				return null;
