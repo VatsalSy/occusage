@@ -115,6 +115,17 @@ describe('pricing-fetcher', () => {
 				cache_read_input_token_cost: 0.000000025,
 			});
 		});
+
+		it('should resolve Claude Opus 4.7 pricing for prefixed snapshot aliases', async () => {
+			await using fetcher = new PricingFetcher(true);
+			const result = await fetcher.getModelPricing('anthropic/claude-opus-4-7-20260416');
+			expect(Result.unwrap(result)).toEqual({
+				input_cost_per_token: 0.000005,
+				output_cost_per_token: 0.000025,
+				cache_creation_input_token_cost: 0.00000625,
+				cache_read_input_token_cost: 0.0000005,
+			});
+		});
 	});
 
 	// Note: These pricing-fetcher tests run in offline mode using bundled pricing data.

@@ -326,7 +326,9 @@ export function formatModelName(modelName: string): string {
 	// Extract model type from full model name
 	// e.g., "claude-sonnet-4-20250514" -> "sonnet-4"
 	// e.g., "claude-opus-4-20250514" -> "opus-4"
-	const match = normalized.match(/claude-(\w+)-(\d+)-\d+/);
+	// e.g., "claude-opus-4-7" -> "opus-4-7"
+	// e.g., "claude-opus-4-7-20260416" -> "opus-4-7"
+	const match = normalized.match(/^claude-(sonnet|opus|haiku)-(\d+(?:-\d{1,2})?)(?:-\d{8})?$/u);
 	if (match != null) {
 		return `${match[1]}-${match[2]}`;
 	}
